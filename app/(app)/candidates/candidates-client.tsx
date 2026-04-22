@@ -1181,7 +1181,7 @@ export default function CandidatesClient({
             <div className="flex items-center justify-between px-6 py-4 border-b">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">CV — {cvModal.name}</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Paste a Google Drive link or upload a file</p>
+                <p className="text-xs text-gray-400 mt-0.5">Paste a URL or upload to Supabase</p>
               </div>
               <button onClick={() => setCvModal(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
@@ -1201,16 +1201,16 @@ export default function CandidatesClient({
                 </div>
               )}
 
-              {/* Option A: Paste Google Drive URL */}
+              {/* Option A: Paste URL */}
               <div>
                 <label className="text-xs font-semibold text-gray-600 flex items-center gap-1.5 mb-1.5">
-                  <LinkIcon size={12} /> Paste Google Drive / Naukri / any URL
+                  <LinkIcon size={12} /> Paste Supabase / Naukri / any URL
                 </label>
                 <input
                   type="url"
                   value={cvPasteUrl}
                   onChange={e => setCvPasteUrl(e.target.value)}
-                  placeholder="https://drive.google.com/file/d/..."
+                  placeholder="https://.../candidate-cv.pdf"
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
@@ -1234,7 +1234,7 @@ export default function CandidatesClient({
                   <Upload size={15} />
                   {cvUploading ? "Uploading…" : "Upload PDF / Word file"}
                 </button>
-                <p className="text-xs text-gray-400 mt-1.5 text-center">Max 10 MB · PDF, DOC, DOCX · Stored in Supabase</p>
+                <p className="text-xs text-gray-400 mt-1.5 text-center">Max 15 MB · PDF, DOC, DOCX · Stored in Supabase</p>
               </div>
             </div>
 

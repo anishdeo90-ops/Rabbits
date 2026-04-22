@@ -7,6 +7,7 @@ import {
   Briefcase, FileText, Activity, ChevronLeft, ChevronRight, ClipboardList,
 } from "lucide-react";
 import { useState } from "react";
+import { HireRabbitsLogo } from "@/components/hirerabbits-logo";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/types";
@@ -46,11 +47,7 @@ export default function Sidebar({ profile }: SidebarProps) {
     )}>
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-700">
-        <img
-          src="/hirerabbits-logo.svg"
-          alt="HireRabbits"
-          className="w-8 h-8 rounded-lg flex-shrink-0"
-        />
+        <HireRabbitsLogo className="h-8 w-8 rounded-lg flex-shrink-0" />
         {!collapsed && (
           <div>
             <p className="font-semibold text-sm leading-tight">HireRabbits</p>

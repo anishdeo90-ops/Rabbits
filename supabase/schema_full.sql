@@ -730,7 +730,7 @@ select
   case when c.pi2_date is not null then 1 else 0 end as pi2_done,
   case when c.pi3_date is not null then 1 else 0 end as pi3_done,
   case when coalesce(c.shortlisted_by_mgmt, '') <> '' then 1 else 0 end as shortlisted_mgmt,
-  case when c.gf_issue_date is not null then 1 else 0 end as gf_issued,
+  case when c.gf_issue_date is not null then 1 else 0 end as gf_issued_flag,
   case when c.gf_received_date is not null then 1 else 0 end as gf_recv,
   case when c.final_status = 'Appointed/Offered' then 1 else 0 end as appointed,
   case when c.doj_actual is not null or c.doj is not null then 1 else 0 end as joined,

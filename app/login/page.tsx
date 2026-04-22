@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { HireRabbitsLogo } from "@/components/hirerabbits-logo";
 import toast from "react-hot-toast";
 
 export default function LoginPage() {
@@ -28,11 +29,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo / Header */}
         <div className="text-center mb-8">
-          <img
-            src="/hirerabbits-logo.svg"
-            alt="HireRabbits"
-            className="inline-flex w-16 h-16 rounded-2xl mb-4 shadow-lg"
-          />
+          <HireRabbitsLogo className="mx-auto mb-4 h-16 w-16 rounded-2xl shadow-lg" />
           <h1 className="text-2xl font-bold text-gray-900">HireRabbits</h1>
           <p className="text-gray-500 mt-1 text-sm">Fast, smart hiring made simple</p>
         </div>
