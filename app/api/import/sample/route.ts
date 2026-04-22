@@ -1,0 +1,165 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+
+const HEADERS = [
+  "HR Name",
+  "Month",
+  "Applications Received Date",
+  "Final Status",
+  "Name of Applicant",
+  "Current Designation",
+  "Designation (Recruited For)",
+  "Contract Required For",
+  "Mobile No",
+  "Email ID",
+  "Suitable for Other Position",
+  "Candidate Current Location",
+  "Source",
+  "Present Salary (CTC PM)",
+  "Expected Salary",
+  "Google Forms Sent",
+  "Google Form Received",
+  "Processed by HR",
+  "Shortlist by HR",
+  "Tel Int Date",
+  "Telephonic Int Remarks (Recruiter)",
+  "HR Manager Remarks",
+  "Mgmt Remarks Before PI",
+  "Tele Int by HOD Name & Comments",
+  "Shortlisted For Personal Interview",
+  "PI 1 Date",
+  "PI 1 Taken By",
+  "PI 1 Remarks",
+  "PI 2 Date",
+  "PI 2 Taken By",
+  "PI 2 Remarks",
+  "Guarantee Form Issue Date",
+  "Guarantee Form Received Date",
+  "GF Verification Report",
+  "Date of Address Verification Letter Shared",
+  "Date of Address Verification Letter Received",
+  "Remarks",
+  "Link",
+  "Final Action",
+  "File No",
+  "DOJ",
+  "Hard Copy Y/N",
+];
+
+const SAMPLE_ROWS = [
+  [
+    "Laiba",
+    "2026-04",
+    "15/04/2026",
+    "Recruiter Screening Done",
+    "Rahul Sharma",
+    "Sr. Executive",
+    "Executive HR",
+    "Mundra EXIM Adani",
+    "9876543210",
+    "rahul.sharma@email.com",
+    "",
+    "Ahmedabad",
+    "Naukri",
+    "35000",
+    "45000",
+    "Yes",
+    "Yes",
+    "Yes",
+    "Yes",
+    "18/04/2026",
+    "Good communication, relevant experience",
+    "Strong profile",
+    "",
+    "",
+    "Yes",
+    "22/04/2026",
+    "HNS",
+    "Performed well",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "Follow up next week",
+    "https://naukri.com/profile/123",
+    "",
+    "F-2026-001",
+    "",
+    "No",
+  ],
+  [
+    "Kashish",
+    "2026-04",
+    "10/04/2026",
+    "Called for PI",
+    "Priya Mehta",
+    "Assistant Manager",
+    "Assistant Manager – Operations",
+    "Ambuja Adani",
+    "9988776655",
+    "priya.mehta@email.com",
+    "Executive HR",
+    "Mumbai",
+    "LinkedIn",
+    "55000",
+    "70000",
+    "Yes",
+    "Yes",
+    "Yes",
+    "Yes",
+    "14/04/2026",
+    "Excellent background in logistics",
+    "Recommended for PI",
+    "Approved",
+    "",
+    "Yes",
+    "20/04/2026",
+    "RHS",
+    "Very good fit",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "https://linkedin.com/in/priya-mehta",
+    "",
+    "F-2026-002",
+    "",
+    "Yes",
+  ],
+];
+
+function escapeCSV(val: string): string {
+  if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+    return `"${val.replace(/"/g, '""')}"`;
+  }
+  return val;
+}
+
+export async function GET() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rows = [
+    HEADERS.map(escapeCSV).join(","),
+    ...SAMPLE_ROWS.map(row => row.map(escapeCSV).join(",")),
+  ];
+
+  const csv = rows.join("\r\n");
+
+  return new NextResponse(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="candidate_import_sample.csv"',
+    },
+  });
+}
