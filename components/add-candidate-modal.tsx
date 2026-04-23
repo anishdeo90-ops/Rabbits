@@ -54,12 +54,10 @@ export default function AddCandidateModal({ profile, sites, designations, source
     if (mobile.trim().length < 7) return;
     setDupLoading(true);
     try {
-      const res = await fetch(`/api/candidates?search=${encodeURIComponent(mobile.trim())}&limit=5`);
+      const res = await fetch(`/api/candidates/duplicates?mobile=${encodeURIComponent(mobile.trim())}&limit=5`);
       if (!res.ok) return;
       const j = await res.json();
-      const matches: DupCandidate[] = (j.data ?? []).filter((c: DupCandidate) =>
-        c.mobile?.replace(/\D/g, "") === mobile.replace(/\D/g, "")
-      );
+      const matches: DupCandidate[] = j.data ?? [];
       if (matches.length > 0) {
         setDuplicates(matches);
         setPendingDupId(matches[0].id);

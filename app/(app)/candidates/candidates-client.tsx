@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import type { Candidate, Master, Profile } from "@/lib/types";
+import type { Candidate, DatePeriod, Master, Profile } from "@/lib/types";
 import DetailPanel from "@/components/candidate-detail-panel";
 import AddCandidateModal from "@/components/add-candidate-modal";
 import toast from "react-hot-toast";
 import { X, Upload, Link as LinkIcon, ExternalLink, Trash2 } from "lucide-react";
 
 type View = "sheet" | "ats" | "kanban";
-type OwnerFilter = "all" | "mine" | "live" | "offered" | "joined";
-
 interface Props {
   profile: Profile;
   sites: Master[];
@@ -81,12 +79,6 @@ const SHEET_COLS: {
   { key: "doj_actual",                 label: "DOJ",                  width: 110, type: "date" },
 ];
 
-// Statuses that mean candidate pipeline is closed / dead
-const DEAD_STATUSES = new Set([
-  "Rejected", "Rejected/Dropped", "Not Interested", "Joined & Left",
-  "Did not Attend Interview",
-]);
-
 // Kanban core view — key outcome stages only (mirrors the dashboard funnel)
 const KANBAN_CORE_KEYS = new Set([
   "Sourced", "Tel Int Done", "Shortlisted by HR", "PI Done",
@@ -111,13 +103,26 @@ const MONTH_OPTS = buildMonthOpts();
 const MONTH_LABEL_TO_ID: Record<string, string> = {};
 MONTH_OPTS.forEach(o => { MONTH_LABEL_TO_ID[o.name.toLowerCase()] = o.id; });
 
+function excelSerialToMonthId(raw: string): string | null {
+  if (!/^\d{5}$/.test(raw)) return null;
+  const serial = Number(raw);
+  if (!Number.isFinite(serial) || serial <= 0) return null;
+  const baseUtc = Date.UTC(1899, 11, 30);
+  const date = new Date(baseUtc + serial * 24 * 60 * 60 * 1000);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 function fmtMonth(raw: string): string {
   if (!raw) return "";
-  if (/^\d{4}-\d{2}$/.test(raw)) return MONTH_OPTS.find(o => o.id === raw)?.name ?? raw;
+  const normalized = excelSerialToMonthId(raw) ?? raw;
+  if (/^\d{4}-\d{2}$/.test(normalized)) return MONTH_OPTS.find(o => o.id === normalized)?.name ?? normalized;
   return raw;
 }
 function normalizeMonthToId(raw: string): string {
   if (!raw) return "";
+  const serialMonth = excelSerialToMonthId(raw);
+  if (serialMonth) return serialMonth;
   if (/^\d{4}-\d{2}$/.test(raw)) return raw;
   return MONTH_LABEL_TO_ID[raw.toLowerCase()] ?? raw;
 }
@@ -162,6 +167,34 @@ const STATUS_COLORS: Record<string, string> = {
 
 const TODAY = new Date().toISOString().split("T")[0];
 
+function toIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDateRangeForPeriod(period: DatePeriod) {
+  const now = new Date();
+  if (period === "month") {
+    return {
+      from: toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1)),
+      to: toIsoDate(now),
+    };
+  }
+  if (period === "lastmonth") {
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const end = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { from: toIsoDate(start), to: toIsoDate(end) };
+  }
+  if (period === "last30") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 29);
+    return { from: toIsoDate(start), to: toIsoDate(now) };
+  }
+  return { from: "", to: "" };
+}
+
 export default function CandidatesClient({
   profile, sites, designations, sources, statuses, recruiters, interviewers,
   initialStatus = "", initialHrId = "",
@@ -175,7 +208,11 @@ export default function CandidatesClient({
   const [siteFilter, setSiteFilter]     = useState("");
   const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [designFilter, setDesignFilter] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>(profile.role === 'recruiter' ? 'mine' : 'all');
+  const [period, setPeriod]             = useState<DatePeriod>("all");
+  const [dateFrom, setDateFrom]         = useState("");
+  const [dateTo, setDateTo]             = useState("");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo]     = useState("");
   const [kanbanFull, setKanbanFull]     = useState(false);
   const [colConfig, setColConfig]       = useState<{ pipeline: string[]; full: string[] }>({ pipeline: [], full: [] });
   const [editColIdx, setEditColIdx]     = useState<number | null>(null);
@@ -231,12 +268,17 @@ export default function CandidatesClient({
   const fetchCandidates = useCallback(async () => {
     setLoading(true);
     try {
+      const derivedRange = period === "custom"
+        ? { from: dateFrom, to: dateTo }
+        : getDateRangeForPeriod(period);
       const p = new URLSearchParams({ limit: "2000" });
       if (hrFilter)     p.set("hr_id",         hrFilter);
       if (siteFilter)   p.set("site_id",        siteFilter);
       if (statusFilter) p.set("status",         statusFilter);
       if (designFilter) p.set("designation_id", designFilter);
       if (search)       p.set("search",         search);
+      if (derivedRange.from) p.set("date_from", derivedRange.from);
+      if (derivedRange.to) p.set("date_to", derivedRange.to);
       const res  = await fetch(`/api/candidates?${p}`);
       const json = await res.json();
       setCandidates(json.data ?? []);
@@ -244,7 +286,7 @@ export default function CandidatesClient({
     } finally {
       setLoading(false);
     }
-  }, [hrFilter, siteFilter, statusFilter, designFilter, search]);
+  }, [hrFilter, siteFilter, statusFilter, designFilter, search, period, dateFrom, dateTo]);
 
   useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
 
@@ -281,13 +323,8 @@ export default function CandidatesClient({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [openColFilter]);
 
-  // ── Owner/Live client-side filter ────────────────────────────────────────
   const visibleCandidates = useMemo(() => {
     let result = candidates;
-    if (ownerFilter === 'mine')    result = result.filter(c => c.hr_id === profile.id || c.created_by === profile.id);
-    if (ownerFilter === 'live')    result = result.filter(c => !DEAD_STATUSES.has(c.final_status ?? ''));
-    if (ownerFilter === 'offered') result = result.filter(c => ["Offered","Appointed/Offered","Offered but Not Joined","offer_confirmed"].some(s => c.final_status?.includes(s.split('/')[0])));
-    if (ownerFilter === 'joined')  result = result.filter(c => c.final_status === "Joined" || c.final_status === "Active Employee" || Boolean(c.doj_actual));
     Object.entries(colFilters).forEach(([colKey, filterVal]) => {
       if (!filterVal) return;
       const col = SHEET_COLS.find(sc => sc.key === colKey);
@@ -297,7 +334,23 @@ export default function CandidatesClient({
       });
     });
     return result;
-  }, [candidates, ownerFilter, profile.id, colFilters]);
+  }, [candidates, colFilters]);
+
+  function handlePeriodChange(val: string) {
+    const nextPeriod = val as DatePeriod;
+    setPeriod(nextPeriod);
+    if (nextPeriod !== "custom") {
+      setCustomDateFrom("");
+      setCustomDateTo("");
+      setDateFrom("");
+      setDateTo("");
+    }
+  }
+
+  function applyCustomDateRange() {
+    setDateFrom(customDateFrom);
+    setDateTo(customDateTo);
+  }
 
   // ── Permission ───────────────────────────────────────────────────────────
   function canEdit(cand: Candidate) {
@@ -649,16 +702,41 @@ export default function CandidatesClient({
           </svg>
         </div>
 
-        {/* Owner filter pill toggle */}
-        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
-          {([["all", "All"], ["mine", "Mine"], ["live", "Live"], ["offered", "Offered"], ["joined", "Joined"]] as [OwnerFilter, string][]).map(([val, lbl]) => (
-            <button key={val} onClick={() => setOwnerFilter(val)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                ownerFilter === val ? "bg-white shadow text-brand-600 font-semibold" : "text-gray-500 hover:text-gray-700"
-              }`}>{lbl}
+        <select
+          value={period}
+          onChange={(e) => handlePeriodChange(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none"
+        >
+          <option value="all">All Time</option>
+          <option value="month">This Month</option>
+          <option value="lastmonth">Last Month</option>
+          <option value="last30">Last 30 Days</option>
+          <option value="custom">Custom Range...</option>
+        </select>
+
+        {period === "custom" && (
+          <>
+            <input
+              type="date"
+              value={customDateFrom}
+              onChange={(e) => setCustomDateFrom(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none"
+            />
+            <span className="text-gray-300 text-xs">to</span>
+            <input
+              type="date"
+              value={customDateTo}
+              onChange={(e) => setCustomDateTo(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none"
+            />
+            <button
+              onClick={applyCustomDateRange}
+              className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-brand-600"
+            >
+              Apply
             </button>
-          ))}
-        </div>
+          </>
+        )}
 
         {["admin", "hr_manager"].includes(profile.role) && (
           <select value={hrFilter} onChange={e => setHrFilter(e.target.value)}
@@ -682,8 +760,19 @@ export default function CandidatesClient({
           <option value="">All Designations</option>
           {designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
-        {(hrFilter || siteFilter || statusFilter || designFilter || search) && (
-          <button onClick={() => { setHrFilter(""); setSiteFilter(""); setStatusFilter(""); setDesignFilter(""); setSearch(""); }}
+        {(hrFilter || siteFilter || statusFilter || designFilter || search || period !== "all" || dateFrom || dateTo || customDateFrom || customDateTo) && (
+          <button onClick={() => {
+            setHrFilter("");
+            setSiteFilter("");
+            setStatusFilter("");
+            setDesignFilter("");
+            setSearch("");
+            setPeriod("all");
+            setDateFrom("");
+            setDateTo("");
+            setCustomDateFrom("");
+            setCustomDateTo("");
+          }}
             className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 px-2.5 py-1.5 rounded-lg bg-white">✕ Clear</button>
         )}
         {Object.keys(colFilters).length > 0 && (
