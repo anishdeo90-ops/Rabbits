@@ -8,33 +8,33 @@ import toast from "react-hot-toast";
 // Expected DB column options for mapping
 const DB_COLUMNS = [
   { value: "skip",                         label: "-- Skip this column --" },
-  { value: "name",                         label: "Candidate Name *" },
-  { value: "hr_name_raw",                  label: "Recruiter Name" },
+  { value: "name",                         label: "Name of Applicant *" },
+  { value: "hr_name_raw",                  label: "HR Name" },
   { value: "month",                        label: "Month" },
-  { value: "application_date",             label: "Application Date" },
-  { value: "cv_drive_url",                  label: "CV Link (Google Drive / file URL)" },
-  { value: "naukri_profile_url",            label: "Profile Link (Naukri / LinkedIn)" },
+  { value: "application_date",             label: "Applications Received Date" },
+  { value: "cv_drive_url",                 label: "Link" },
+  { value: "naukri_profile_url",           label: "Profile Link" },
   { value: "current_designation",          label: "Current Designation" },
-  { value: "designation_raw",              label: "Applied For (Designation)" },
-  { value: "site_raw",                     label: "Site" },
-  { value: "mobile",                       label: "Mobile" },
-  { value: "email",                        label: "Email" },
-  { value: "suitable_other_position",      label: "Suitable Other Position" },
-  { value: "current_location",             label: "Current Location" },
+  { value: "designation_raw",              label: "Designation (Recruited For)" },
+  { value: "site_raw",                     label: "Contract Required For" },
+  { value: "mobile",                       label: "Mobile No" },
+  { value: "email",                        label: "Email ID" },
+  { value: "suitable_other_position",      label: "Suitable for Other Position" },
+  { value: "current_location",             label: "Candidate Current Location" },
   { value: "source_raw",                   label: "Source" },
-  { value: "present_salary",               label: "Present Salary" },
+  { value: "present_salary",               label: "Present Salary (CTC PM)" },
   { value: "expected_salary",              label: "Expected Salary" },
   { value: "notice_period_days",           label: "Notice Period (days)" },
-  { value: "google_form_sent",             label: "Google Form Sent" },
+  { value: "google_form_sent",             label: "Google Forms Sent" },
   { value: "google_form_received",         label: "Google Form Received" },
-  { value: "processed_by_hr",              label: "Processed By HR" },
-  { value: "shortlist_by_hr",              label: "Shortlist By HR" },
+  { value: "processed_by_hr",              label: "Processed by HR" },
+  { value: "shortlist_by_hr",              label: "Shortlist by HR" },
   { value: "tel_int_date",                 label: "Tel Int Date" },
-  { value: "tel_int_remarks",              label: "Tel Int Remarks" },
+  { value: "tel_int_remarks",              label: "Telephonic Int Remarks (Recruiter)" },
   { value: "hr_manager_remarks",           label: "HR Manager Remarks" },
-  { value: "remarks_before_pi",            label: "Remarks Before PI" },
+  { value: "remarks_before_pi",            label: "Tele Int by HOD Name & Comments" },
   { value: "mgmt_remarks_before_pi",       label: "Mgmt Remarks Before PI" },
-  { value: "shortlisted_for_pi",           label: "Shortlisted For PI" },
+  { value: "shortlisted_for_pi",           label: "Shortlisted For Personal Interview" },
   { value: "pi1_date",                     label: "PI 1 Date" },
   { value: "pi1_taken_by",                 label: "PI 1 Taken By" },
   { value: "pi1_remarks",                  label: "PI 1 Remarks" },
@@ -44,21 +44,20 @@ const DB_COLUMNS = [
   { value: "pi3_date",                     label: "PI 3 Date" },
   { value: "pi3_taken_by",                 label: "PI 3 Taken By" },
   { value: "pi3_remarks",                  label: "PI 3 Remarks" },
-  { value: "gf_issued",                    label: "GF Issued Y/N" },
-  { value: "shortlisted_by_mgmt",          label: "Shortlisted By Mgmt" },
-  { value: "gf_issue_date",               label: "GF Issue Date" },
-  { value: "gf_received_date",            label: "GF Received Date" },
-  { value: "gf_verified",                 label: "GF Verified" },
-  { value: "gf_verification_report",      label: "GF Verification Report" },
-  { value: "addr_verification_shared",    label: "Address Verif Shared" },
-  { value: "addr_verification_received",  label: "Address Verif Received" },
-  { value: "remarks",                     label: "Remarks" },
-  { value: "final_status",               label: "Final Status" },
-  { value: "final_action",               label: "Final Action" },
-  { value: "file_no",                    label: "File No" },
-  { value: "doj",                        label: "Date of Joining" },
-  { value: "hard_copy",                  label: "Hard Copy Y/N" },
-  { value: "file_no",                    label: "File No" },
+  { value: "gf_issued",                    label: "GF ISSUED Y/N" },
+  { value: "shortlisted_by_mgmt",          label: "SHORTLISTED BY MGMT" },
+  { value: "gf_issue_date",                label: "Guarantee Form Issue Date" },
+  { value: "gf_received_date",             label: "Guarantee Form Received Date" },
+  { value: "gf_verified",                  label: "GF VERIFIED" },
+  { value: "gf_verification_report",       label: "GF Verification Report" },
+  { value: "addr_verification_shared",     label: "Date of Address Verification Letter Shared" },
+  { value: "addr_verification_received",   label: "Date of Address Verification Letter Received" },
+  { value: "remarks",                      label: "Remarks" },
+  { value: "final_status",                 label: "Final Status" },
+  { value: "final_action",                 label: "Final Action" },
+  { value: "file_no",                      label: "File No" },
+  { value: "doj",                          label: "DOJ" },
+  { value: "hard_copy",                    label: "Hard Copy Y/N" },
 ];
 
 // Auto-map common Excel header variants to DB columns
@@ -103,6 +102,7 @@ const AUTO_MAP: Record<string, string> = {
   "telephonic int remarks (recruiter)":   "tel_int_remarks",
   "hr manager remarks":                   "hr_manager_remarks",
   "tele int by hod name & comments":      "remarks_before_pi",
+  "tele int by hod name and comments":    "remarks_before_pi",
   "remarks before pi":                    "remarks_before_pi",
   "mgmt remarks before pi":               "mgmt_remarks_before_pi",
   "shortlisted for personal interview":   "shortlisted_for_pi",
@@ -135,6 +135,14 @@ const AUTO_MAP: Record<string, string> = {
   "doj":                                  "doj",
   "hard copy y/n":                        "hard_copy",
 };
+
+function normalizeHeader(header: string) {
+  return header
+    .toLowerCase()
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 type Step = "upload" | "map" | "preview" | "done";
 
@@ -208,7 +216,7 @@ export default function ImportPage() {
     // Auto-map
     const autoMapping: Record<string, string> = {};
     for (const h of hdrs) {
-      const key = h.toLowerCase().trim();
+      const key = normalizeHeader(h);
       autoMapping[h] = AUTO_MAP[key] ?? "skip";
     }
     setMapping(autoMapping);
@@ -278,11 +286,11 @@ export default function ImportPage() {
         >
           <FileSpreadsheet size={48} className="mx-auto text-gray-300 mb-4" />
           <p className="text-lg font-medium text-gray-700">Drop your Excel file here</p>
-          <p className="text-sm text-gray-400 mt-1">or click to browse — .xlsx / .xls files accepted</p>
+          <p className="text-sm text-gray-400 mt-1">or click to browse - .xlsx, .xls, or .csv files accepted</p>
           <input
             id="file-input"
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,.csv"
             className="hidden"
             onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
           />

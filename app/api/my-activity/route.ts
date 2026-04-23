@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+function ownedByRecruiterFilter(userId: string) {
+  return `created_by.eq.${userId},hr_id.eq.${userId}`;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -43,11 +47,11 @@ export async function GET(req: NextRequest) {
   // 3. Joinings (all time) by this recruiter
   const { data: joinings } = await supabase
     .from("candidates")
-    .select("id, name, site_id, doj_actual, file_no, designation_id")
-    .eq("created_by", user.id)
+    .select("id, name, site_id, doj_actual, doj, file_no, designation_id, final_status, updated_at")
     .eq("is_deleted", false)
-    .not("doj_actual", "is", null)
-    .order("doj_actual", { ascending: false })
+    .or(ownedByRecruiterFilter(user.id))
+    .or("final_status.eq.Joined,doj_actual.not.is.null,doj.not.is.null")
+    .order("updated_at", { ascending: false })
     .limit(50);
 
   // 4. Pending follow-ups: candidates with no update in 3+ days
@@ -55,9 +59,9 @@ export async function GET(req: NextRequest) {
   const { count: pendingFollowups } = await supabase
     .from("candidates")
     .select("id", { count: "exact", head: true })
-    .eq("created_by", user.id)
+    .or(ownedByRecruiterFilter(user.id))
     .eq("is_deleted", false)
-    .not("final_status", "in", "(Joined,Rejected/Dropped,Offered But Not Joined)")
+    .not("final_status", "in", "(Joined,Rejected/Dropped,Offered But Not Joined,Offered,Appointed/Offered)")
     .lt("updated_at", threeDaysAgo);
 
   // 5. Interview count this period
@@ -75,16 +79,21 @@ export async function GET(req: NextRequest) {
     designation_name: (i.candidate as unknown as { designation?: { name: string } } | null)?.designation?.name,
   }));
 
+  const normalizedJoinings = (joinings ?? []).map((joining) => ({
+    ...joining,
+    doj_actual: joining.doj_actual ?? joining.doj ?? null,
+  }));
+
   return NextResponse.json({
     stats: {
       candidates_added: totalAdded ?? 0,
       interviews_scheduled: interviewCount ?? 0,
-      joinings: (joinings ?? []).length,
+      joinings: normalizedJoinings.length,
       pending_followups: pendingFollowups ?? 0,
     },
     upcoming_interviews: formattedInterviews,
     recent_candidates: (candidatesAdded ?? []).slice(0, 20),
-    joinings: joinings ?? [],
+    joinings: normalizedJoinings,
     period: { date_from: dateFrom, date_to: dateTo },
   });
 }

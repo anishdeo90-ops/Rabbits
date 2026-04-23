@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { DatePeriod } from "@/lib/types";
 
+type FunnelRow = Record<string, string | number | null>;
+
+function normalizeStatus(status: string | number | null | undefined) {
+  return String(status ?? "").trim().toLowerCase();
+}
+
+function isJoinedRow(row: FunnelRow) {
+  const status = normalizeStatus(row.final_status);
+  return status === "joined" || Number(row.joined ?? 0) > 0;
+}
+
+function isOfferedRow(row: FunnelRow) {
+  const status = normalizeStatus(row.final_status);
+  return status === "offered" || status === "appointed/offered" || Number(row.appointed ?? 0) > 0;
+}
+
+function isOfferedNotJoinedRow(row: FunnelRow) {
+  const status = normalizeStatus(row.final_status);
+  return status === "offered but not joined" || Number(row.offered_not_joined ?? 0) > 0;
+}
+
 function getPeriodDates(period: DatePeriod, dateFrom?: string, dateTo?: string) {
   const now = new Date();
   switch (period) {
@@ -75,20 +96,20 @@ export async function GET(req: NextRequest) {
 
   const rows = data ?? [];
 
-  function sumFunnel(rs: Record<string, number>[]) {
+  function sumFunnel(rs: FunnelRow[]) {
     return {
       total:              rs.length,
-      tel_int_done:       rs.reduce((s, r) => s + (r.tel_int_done ?? 0), 0),
-      gf_sent:            rs.reduce((s, r) => s + (r.gf_sent ?? 0), 0),
-      gf_received:        rs.reduce((s, r) => s + (r.gf_received ?? 0), 0),
-      shortlisted_hr:     rs.reduce((s, r) => s + (r.shortlisted_hr ?? 0), 0),
-      pi_done:            rs.reduce((s, r) => s + (r.pi_done ?? 0), 0),
-      shortlisted_mgmt:   rs.reduce((s, r) => s + (r.shortlisted_mgmt ?? 0), 0),
-      gf_issued:          rs.reduce((s, r) => s + (r.gf_issued_flag ?? 0), 0),
-      gf_recv:            rs.reduce((s, r) => s + (r.gf_recv ?? 0), 0),
-      appointed:          rs.reduce((s, r) => s + (r.appointed ?? 0), 0),
-      joined:             rs.reduce((s, r) => s + (r.joined ?? 0), 0),
-      offered_not_joined: rs.reduce((s, r) => s + (r.offered_not_joined ?? 0), 0),
+      tel_int_done:       rs.reduce((s, r) => s + Number(r.tel_int_done ?? 0), 0),
+      gf_sent:            rs.reduce((s, r) => s + Number(r.gf_sent ?? 0), 0),
+      gf_received:        rs.reduce((s, r) => s + Number(r.gf_received ?? 0), 0),
+      shortlisted_hr:     rs.reduce((s, r) => s + Number(r.shortlisted_hr ?? 0), 0),
+      pi_done:            rs.reduce((s, r) => s + Number(r.pi_done ?? 0), 0),
+      shortlisted_mgmt:   rs.reduce((s, r) => s + Number(r.shortlisted_mgmt ?? 0), 0),
+      gf_issued:          rs.reduce((s, r) => s + Number(r.gf_issued_flag ?? 0), 0),
+      gf_recv:            rs.reduce((s, r) => s + Number(r.gf_recv ?? 0), 0),
+      appointed:          rs.reduce((s, r) => s + (isOfferedRow(r) ? 1 : 0), 0),
+      joined:             rs.reduce((s, r) => s + (isJoinedRow(r) ? 1 : 0), 0),
+      offered_not_joined: rs.reduce((s, r) => s + (isOfferedNotJoinedRow(r) ? 1 : 0), 0),
     };
   }
 

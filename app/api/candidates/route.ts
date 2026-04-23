@@ -44,7 +44,11 @@ export async function GET(req: NextRequest) {
   if (hrId)     query = query.eq("hr_id",           hrId);
   if (siteId)   query = query.eq("site_id",          siteId);
   if (month)    query = query.eq("month",            month);
-  if (status)   query = query.eq("final_status",     status);
+  if (status === "Appointed/Offered" || status === "Offered") {
+    query = query.in("final_status", ["Appointed/Offered", "Offered"]);
+  } else if (status) {
+    query = query.eq("final_status", status);
+  }
   if (designId) query = query.eq("designation_id",   designId);
   if (sourceId) query = query.eq("source_id",        sourceId);
   if (dateFrom) query = query.gte("application_date", dateFrom);
