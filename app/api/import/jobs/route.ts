@@ -64,6 +64,10 @@ const COLUMN_MAP: Record<string, string> = {
   "Type":             "job_type",
   "Job Type":         "job_type",
   "Employment Type":  "job_type",
+  "Job Platform":     "job_platform",
+  "Platform":         "job_platform",
+  "Posted On":        "job_platform",
+  "Source Platform":  "job_platform",
   // Salary
   "Min Salary":       "min_salary",
   "Min CTC":          "min_salary",
@@ -172,6 +176,7 @@ export async function POST(req: NextRequest) {
       priority,
       status,
       job_type,
+      job_platform:   safeStr(mapped.job_platform) || null,
       min_salary:     minSalary,
       max_salary:     maxSalary,
       opened_at:      safeDate(mapped.opened_at),

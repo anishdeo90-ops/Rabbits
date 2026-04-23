@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   title             TEXT NOT NULL,
   job_type          TEXT NOT NULL DEFAULT 'internal'
                       CHECK (job_type IN ('internal','client')),
+  job_platform      TEXT,
   status            TEXT NOT NULL DEFAULT 'open'
                       CHECK (status IN ('open','on_hold','closed','filled')),
   designation_id    UUID REFERENCES masters(id) ON DELETE SET NULL,
@@ -64,6 +65,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_by        UUID REFERENCES profiles(id),
   is_deleted        BOOLEAN DEFAULT false
 );
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_platform TEXT;
 
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "jobs_select_auth" ON jobs

@@ -25,6 +25,17 @@ const PRIORITY_COLORS: Record<string, string> = {
   low:    "bg-gray-100 text-gray-500",
 };
 
+const JOB_PLATFORM_OPTIONS = [
+  "LinkedIn",
+  "Indeed",
+  "Naukri",
+  "Foundit",
+  "Apna",
+  "Company Website",
+  "Referral",
+  "Other",
+];
+
 export default function JobsPage() {
   const [tab, setTab]         = useState<JobTab>("open");
   const [jobs, setJobs]       = useState<Job[]>([]);
@@ -199,6 +210,9 @@ export default function JobsPage() {
                     {job.designation_name} · {job.site_name}
                     {job.headcount > 1 ? ` · ${job.headcount} openings` : ""}
                   </p>
+                  {job.job_platform && (
+                    <p className="text-xs text-gray-400 mt-1">Posted on: {job.job_platform}</p>
+                  )}
                 </div>
                 <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-1.5 ${
                   job.status === "open" ? "bg-green-500" :
@@ -280,7 +294,7 @@ export default function JobsPage() {
                     onClick={() => {
                       setEditingJob(job);
                       setForm({
-                        title: job.title, job_type: job.job_type, designation_id: job.designation_id,
+                        title: job.title, job_type: job.job_type, job_platform: job.job_platform, designation_id: job.designation_id,
                         site_id: job.site_id, headcount: job.headcount, priority: job.priority,
                         min_salary: job.min_salary, max_salary: job.max_salary,
                         opened_at: job.opened_at, target_doj: job.target_doj,
@@ -338,6 +352,14 @@ export default function JobsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
                     <option value="internal">Internal</option>
                     <option value="client">Client</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium block mb-1">Job Platform</label>
+                  <select value={form.job_platform ?? ""} onChange={e => setForm(p => ({...p, job_platform: e.target.value || undefined}))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">-- Select --</option>
+                    {JOB_PLATFORM_OPTIONS.map(platform => <option key={platform} value={platform}>{platform}</option>)}
                   </select>
                 </div>
                 <div>
@@ -481,6 +503,14 @@ export default function JobsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
                     <option value="internal">Internal</option>
                     <option value="client">Client</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium block mb-1">Job Platform</label>
+                  <select value={form.job_platform ?? ""} onChange={e => setForm(p => ({...p, job_platform: e.target.value || undefined}))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">-- Select --</option>
+                    {JOB_PLATFORM_OPTIONS.map(platform => <option key={platform} value={platform}>{platform}</option>)}
                   </select>
                 </div>
                 <div>

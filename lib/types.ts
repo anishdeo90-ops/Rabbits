@@ -144,6 +144,7 @@ export interface Job {
   id: string;
   title: string;
   job_type: JobType;
+  job_platform?: string;
   status: JobStatus;
   designation_id?: string;
   site_id?: string;

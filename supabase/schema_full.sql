@@ -109,6 +109,7 @@ create table if not exists public.jobs (
   id uuid primary key default uuid_generate_v4(),
   title text not null,
   job_type text not null default 'internal' check (job_type in ('internal','client')),
+  job_platform text,
   status text not null default 'open' check (status in ('open','on_hold','closed','filled')),
   designation_id uuid references public.masters(id) on delete set null,
   site_id uuid references public.masters(id) on delete set null,
@@ -138,6 +139,9 @@ create table if not exists public.jobs (
   created_by uuid references public.profiles(id) on delete set null,
   is_deleted boolean default false
 );
+
+alter table if exists public.jobs
+  add column if not exists job_platform text;
 
 create sequence if not exists public.candidates_sr_no_seq;
 
