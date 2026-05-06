@@ -18,6 +18,7 @@ interface Props {
   interviewers: Master[];
   initialStatus?: string;
   initialHrId?: string;
+  initialCandidateId?: string;
 }
 
 // ── Sheet columns ────────────────────────────────────────────────────────────
@@ -174,6 +175,37 @@ function toIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function KeywordTags({ tags, max = 4 }: { tags?: string[]; max?: number }) {
+  if (!tags?.length) return null;
+  const visible = tags.slice(0, max);
+  const rest = tags.length - max;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {visible.map(tag => (
+        <span
+          key={tag}
+          className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+            /\d+yr/i.test(tag)
+              ? "bg-blue-50 text-blue-700 border border-blue-200"
+              : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {tag}
+        </span>
+      ))}
+      {rest > 0 && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+          +{rest}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function getKeywordTags(candidate: Candidate) {
+  return candidate.parsed_keywords?.summary_tags ?? [];
+}
+
 function getDateRangeForPeriod(period: DatePeriod) {
   const now = new Date();
   if (period === "month") {
@@ -197,13 +229,14 @@ function getDateRangeForPeriod(period: DatePeriod) {
 
 export default function CandidatesClient({
   profile, sites, designations, sources, statuses, recruiters, interviewers,
-  initialStatus = "", initialHrId = "",
+  initialStatus = "", initialHrId = "", initialCandidateId = "",
 }: Props) {
   const [view, setView]             = useState<View>("sheet");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState("");
+  const [kwSearch, setKwSearch]     = useState("");
   const [hrFilter, setHrFilter]         = useState(initialHrId);
   const [siteFilter, setSiteFilter]     = useState("");
   const [statusFilter, setStatusFilter] = useState(initialStatus);
@@ -218,7 +251,7 @@ export default function CandidatesClient({
   const [editColIdx, setEditColIdx]     = useState<number | null>(null);
   const dragCol = useRef<string | null>(null);
 
-  const [panelId, setPanelId]           = useState<string | null>(null);
+  const [panelId, setPanelId]           = useState<string | null>(initialCandidateId || null);
   const [showAddModal, setShowAddModal] = useState(false);
 
   // ── Sheet editing state ──────────────────────────────────────────────────
@@ -277,6 +310,7 @@ export default function CandidatesClient({
       if (statusFilter) p.set("status",         statusFilter);
       if (designFilter) p.set("designation_id", designFilter);
       if (search)       p.set("search",         search);
+      if (kwSearch.trim()) p.set("kw_search",   kwSearch.trim());
       if (derivedRange.from) p.set("date_from", derivedRange.from);
       if (derivedRange.to) p.set("date_to", derivedRange.to);
       const res  = await fetch(`/api/candidates?${p}`);
@@ -286,7 +320,7 @@ export default function CandidatesClient({
     } finally {
       setLoading(false);
     }
-  }, [hrFilter, siteFilter, statusFilter, designFilter, search, period, dateFrom, dateTo]);
+  }, [hrFilter, siteFilter, statusFilter, designFilter, search, kwSearch, period, dateFrom, dateTo]);
 
   useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
 
@@ -601,6 +635,7 @@ export default function CandidatesClient({
     try {
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("candidate_id", cvModal.candidateId);
       const res = await fetch(`/api/candidates/${cvModal.candidateId}/cv`, { method: "POST", body: fd });
       if (!res.ok) { const e = await res.json(); toast.error(e.error ?? "Upload failed"); return; }
       const j = await res.json();
@@ -609,6 +644,21 @@ export default function CandidatesClient({
       setCvPasteUrl(url);
       setCvModal(prev => prev ? { ...prev, currentUrl: url } : null);
       toast.success("CV uploaded and linked");
+      try {
+        const parseFd = new FormData();
+        parseFd.append("file", file);
+        parseFd.append("candidate_id", cvModal.candidateId);
+        const parseRes = await fetch("/api/parse-resume", { method: "POST", body: parseFd });
+        if (parseRes.ok) {
+          const parsed = await parseRes.json();
+          const parsedKeywords = parsed.data?.parsed_keywords;
+          if (parsedKeywords) {
+            setCandidates(prev => prev.map(c => c.id === cvModal.candidateId ? { ...c, parsed_keywords: parsedKeywords } : c));
+          }
+        }
+      } catch {
+        // CV upload should still succeed even when AI parsing is unavailable.
+      }
     } catch { toast.error("Upload failed"); }
     finally { setCvUploading(false); }
   }
@@ -701,6 +751,21 @@ export default function CandidatesClient({
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
+        <div className="relative">
+          <input value={kwSearch} onChange={e => setKwSearch(e.target.value)}
+            placeholder='Skill Search: "Python 4 years"'
+            className="text-xs border border-gray-200 rounded-lg pl-7 pr-7 py-1.5 w-60 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none" />
+          <svg className="absolute left-2 top-2.5" width="12" height="12" fill="none" stroke="#9ca3af" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          {kwSearch && (
+            <button onClick={() => setKwSearch("")}
+              className="absolute right-2 top-2 text-gray-400 hover:text-gray-700">
+              <X size={12} />
+            </button>
+          )}
+        </div>
 
         <select
           value={period}
@@ -760,13 +825,14 @@ export default function CandidatesClient({
           <option value="">All Designations</option>
           {designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
-        {(hrFilter || siteFilter || statusFilter || designFilter || search || period !== "all" || dateFrom || dateTo || customDateFrom || customDateTo) && (
+        {(hrFilter || siteFilter || statusFilter || designFilter || search || kwSearch || period !== "all" || dateFrom || dateTo || customDateFrom || customDateTo) && (
           <button onClick={() => {
             setHrFilter("");
             setSiteFilter("");
             setStatusFilter("");
             setDesignFilter("");
             setSearch("");
+            setKwSearch("");
             setPeriod("all");
             setDateFrom("");
             setDateTo("");
@@ -912,11 +978,12 @@ export default function CandidatesClient({
                               )
                             ) : (
                               <div className={[
-                                "px-2 py-1.5 truncate text-xs leading-snug",
+                                `px-2 py-1.5 text-xs leading-snug ${isNameCol ? "" : "truncate"}`,
                                 isNameCol   ? "text-brand-600 font-semibold cursor-pointer hover:underline" : "",
                                 isReadOnly  ? "text-gray-400" : "",
                                 !editable && !isReadOnly ? "text-gray-400" : "text-gray-800",
                               ].join(" ")}>
+                                {isNameCol && <KeywordTags tags={getKeywordTags(cand)} />}
                                 {col.key === "final_status" && rawVal
                                   ? <span className={`px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${STATUS_COLORS[rawVal] ?? "bg-gray-100 text-gray-600"}`}>{rawVal}</span>
                                   : (col.key === "naukri_link" || col.key === "naukri_profile_url") && rawVal
@@ -1052,6 +1119,7 @@ export default function CandidatesClient({
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900 text-sm truncate">{cand.name}</p>
                         <p className="text-xs text-gray-400 truncate">{cand.designation_name ?? cand.current_designation}</p>
+                        <KeywordTags tags={getKeywordTags(cand)} />
                       </div>
                       {cand.ai_score != null && (
                         <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold flex-shrink-0 ml-2 ${cand.ai_score >= 80 ? "border-green-500 text-green-700" : cand.ai_score >= 60 ? "border-yellow-500 text-yellow-700" : "border-red-400 text-red-600"}`}>
@@ -1215,6 +1283,7 @@ export default function CandidatesClient({
                               style={{ borderLeft: `3px solid ${color}` }}>
                               <p className="text-xs font-semibold text-gray-900 leading-tight">{cand.name}</p>
                               <p className="text-xs text-gray-400 mt-0.5 truncate">{cand.designation_name}</p>
+                              <KeywordTags tags={getKeywordTags(cand)} max={3} />
                               {cand.site_name && <p className="text-xs text-gray-400">{cand.site_name}</p>}
                               <select
                                 value={cand.final_status ?? ""}

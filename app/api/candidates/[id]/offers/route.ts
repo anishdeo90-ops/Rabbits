@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { enqueueOfferTriggers, enqueueStageChangeTriggers } from "@/lib/automation/triggers";
 
 // GET: fetch offers for a candidate
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -98,6 +99,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       doj_actual: patch.joined_at ?? null,
       updated_by: user.id,
     }).eq("id", id);
+    await enqueueStageChangeTriggers(id, "Joined");
   }
 
   const { data, error } = await supabase
@@ -109,6 +111,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (updates.status === "offer_sent") {
+    await enqueueOfferTriggers(id, offer_id);
+  }
   return NextResponse.json({ data });
 }
 

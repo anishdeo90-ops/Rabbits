@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Settings, LogOut,
   Briefcase, FileText, Activity, ChevronLeft, ChevronRight, ClipboardList,
+  Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { HireRabbitsLogo } from "@/components/hirerabbits-logo";
@@ -13,10 +14,11 @@ import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/types";
 
 const NAV = [
-  { href: "/dashboard",   icon: LayoutDashboard, label: "Dashboard" },
   { href: "/my-activity", icon: Activity,         label: "My Activity",  roles: ["recruiter", "hr_manager", "admin"] },
+  { href: "/dashboard",   icon: LayoutDashboard, label: "Dashboard" },
   { href: "/candidates",  icon: Users,            label: "Candidates" },
   { href: "/jobs",        icon: Briefcase,        label: "Jobs" },
+  { href: "/automation",  icon: Zap,              label: "Automation",   roles: ["admin", "hr_manager"] },
   { href: "/hod-portal",  icon: ClipboardList,    label: "HOD Portal",        roles: ["admin", "hr_manager", "hod"] },
   { href: "/jds",         icon: FileText,         label: "JDs & Forms",       roles: ["admin", "hr_manager"] },
 ];

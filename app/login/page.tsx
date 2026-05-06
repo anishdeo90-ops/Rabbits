@@ -19,8 +19,12 @@ export default function LoginPage() {
       toast.error(error.message);
       setLoading(false);
     } else {
-      // Hard redirect — ensures cookies are flushed before server middleware reads them
-      window.location.href = "/dashboard";
+      const next = new URLSearchParams(window.location.search).get("next");
+      const safeNext = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login")
+        ? next
+        : "/dashboard";
+      // Hard redirect ensures cookies are flushed before server middleware reads them.
+      window.location.href = safeNext;
     }
   }
 

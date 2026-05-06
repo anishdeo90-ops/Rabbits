@@ -38,6 +38,35 @@ export interface CustomColumn {
   is_active: boolean;
 }
 
+export interface ParsedKeywords {
+  skills?: string[];
+  years_experience?: number;
+  education?: string;
+  current_role?: string;
+  industries?: string[];
+  tools?: string[];
+  certifications?: string[];
+  languages?: string[];
+  summary_tags?: string[];
+}
+
+export interface CandidateJobScore {
+  id: string;
+  candidate_id: string;
+  job_id: string;
+  fit_score: number;
+  fit_breakdown: {
+    skills_match?: number;
+    experience_match?: number;
+    education_match?: number;
+    matched_skills?: string[];
+    missing_skills?: string[];
+    ai_reasoning?: string;
+  };
+  scored_at: string;
+  scored_by_model?: string;
+}
+
 export interface Candidate {
   id: string;
   sr_no: number;
@@ -103,6 +132,10 @@ export interface Candidate {
   // AI
   ai_score?: number;
   ai_summary?: string;
+  parsed_keywords?: ParsedKeywords;
+  kw_years_experience?: number;
+  kw_skills?: string[];
+  kw_summary_tags?: string[];
   // CV
   cv_drive_url?: string;
   cv_filename?: string;
@@ -477,6 +510,115 @@ export interface CandidateOffer {
   created_by?: string;
   updated_at: string;
   updated_by?: string;
+}
+
+export type AutomationChannel = "whatsapp" | "email" | "sms" | "in_app";
+export type AutomationTrigger =
+  | "stage_change" | "no_recruiter_contact" | "interview_scheduled" | "interview_upcoming"
+  | "interview_done_no_feedback" | "offer_sent_no_response" | "candidate_no_show" | "job_stale"
+  | "candidate_joined" | "schedule_daily_digest" | "schedule_weekly_summary" | "gf_no_return"
+  | "offer_not_joined";
+export type AutomationAction =
+  | "send_candidate_message" | "notify_recruiter" | "notify_hr_manager"
+  | "notify_interviewer" | "stop_all_followups";
+export type FollowupStatus = "pending" | "sent" | "skipped" | "cancelled" | "failed";
+export type RunStatus = "success" | "failed" | "skipped" | "dry_run";
+
+export interface MessageTemplate {
+  id: string;
+  name: string;
+  channel: AutomationChannel;
+  subject?: string | null;
+  body: string;
+  variables: string[];
+  category: string;
+  is_active: boolean;
+  is_system: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  description?: string | null;
+  is_active: boolean;
+  trigger_type: AutomationTrigger;
+  conditions: Record<string, unknown>;
+  action_type: AutomationAction;
+  template_id?: string | null;
+  action_config: Record<string, unknown>;
+  delay_hours: number;
+  max_per_candidate: number;
+  cooldown_hours: number;
+  sort_order: number;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  template?: MessageTemplate | null;
+}
+
+export interface CandidateFollowup {
+  id: string;
+  candidate_id: string;
+  rule_id: string;
+  status: FollowupStatus;
+  scheduled_at: string;
+  executed_at?: string | null;
+  trigger_context: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+  automation_rules?: Pick<AutomationRule, "id" | "name" | "action_type" | "trigger_type"> | null;
+}
+
+export interface CommunicationLog {
+  id: string;
+  followup_id?: string | null;
+  rule_id?: string | null;
+  candidate_id?: string | null;
+  channel?: AutomationChannel | null;
+  recipient_type?: "candidate" | "recruiter" | "hr_manager" | "interviewer" | null;
+  recipient_id?: string | null;
+  recipient_phone?: string | null;
+  recipient_email?: string | null;
+  subject?: string | null;
+  body?: string | null;
+  status: RunStatus;
+  provider_message_id?: string | null;
+  provider_response?: Record<string, unknown> | null;
+  error_message?: string | null;
+  created_at: string;
+}
+
+export interface AutomationRun {
+  id: string;
+  started_at: string;
+  finished_at?: string | null;
+  mode: "live" | "dry_run";
+  followups_evaluated: number;
+  followups_sent: number;
+  followups_skipped: number;
+  followups_failed: number;
+  error_message?: string | null;
+}
+
+export interface AutomationSettings {
+  id: string;
+  twilio_account_sid?: string | null;
+  twilio_auth_token?: string | null;
+  twilio_whatsapp_from?: string | null;
+  resend_api_key?: string | null;
+  resend_from_email?: string | null;
+  resend_from_name?: string | null;
+  is_live: boolean;
+  company_name: string;
+  daily_digest_time: string;
+  weekly_digest_day: string;
+  updated_at: string;
+  updated_by?: string | null;
 }
 
 export interface CTCTemplate {

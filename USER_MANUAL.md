@@ -3,6 +3,19 @@
 
 ---
 
+## CONTRIBUTING TO THIS MANUAL
+
+Every time a change is made to the codebase, update this file before finishing:
+
+1. **What we did** — add a one-line entry under the relevant Change Log date
+2. **Next step** — note what still needs to be done (or write "—" if complete)
+3. **Bug fixes** — log any bug fixed under Section 10 (Bug Fix Log)
+4. **Major updates** — if the change is significant (new feature, breaking change, schema update), add a header entry under Section 11 (Major Updates)
+
+Keep entries short and factual. Newest entries go at the top of each section.
+
+---
+
 ## 1. First-Time Setup
 
 ### A. Supabase
@@ -12,6 +25,8 @@
    - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
    - anon public key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - service_role key → `SUPABASE_SERVICE_ROLE_KEY`
+
+> Automation setup: after running `supabase/schema_v3.sql`, also run `supabase/migrations/20260506090000_followup_automation.sql`.
 
 ### B. Environment
 ```bash
@@ -41,12 +56,12 @@ Connect repo → add the 3 env vars in Vercel Settings → deploy.
 
 ## 2. User Roles
 
-| Role | Candidates | Masters | Users | Dashboard |
-|------|-----------|---------|-------|-----------|
-| **Admin** | Full CRUD, all records | ✓ Edit | ✓ Create | Full |
-| **HR Manager** | Full CRUD, all records | ✓ Edit | View only | Full |
-| **Recruiter** | Own records only | Read only | — | Own stats |
-| **HOD** | Read only + remarks | — | — | Read only |
+| Role | Candidates | Masters | Users | Dashboard | Automation |
+|------|-----------|---------|-------|-----------|------------|
+| **Admin** | Full CRUD, all records | ✓ Edit | ✓ Create | Full | Full |
+| **HR Manager** | Full CRUD, all records | ✓ Edit | View only | Full | Full |
+| **Recruiter** | Own records only | Read only | — | Own stats | — |
+| **HOD** | Read only + remarks | — | — | Read only | — |
 
 ---
 
@@ -65,17 +80,28 @@ Connect repo → add the 3 env vars in Vercel Settings → deploy.
 ## 4. Module Guide
 
 ### Candidates (`/candidates`)
-- **Sheet view**: sortable table with all candidate fields; inline CV upload; click a row to open the detail panel
-- **Kanban view**: drag cards across pipeline stages; column headers are **draggable to reorder** and **clickable to change which stage they show**
+- **Sheet view**: sortable table with all candidate fields; inline CV upload; keyword tags; click a row to open the detail panel
+- **Skill Search**: second search box for resume keywords such as `Python 4 years`, `React developer`, or `team lead`
+- **Kanban view**: drag cards across pipeline stages; column headers are **draggable to reorder** and **clickable to change which stage they show**; cards show parsed keyword tags
 - **Add candidate**: modal with duplicate-check on mobile number
 - **Bulk import**: Upload Excel/CSV → map columns → preview → import
-- **Detail panel**: full profile, interview timeline, files, offer letter, CTC breakdown, notes, co-sourcing
+- **Detail panel**: full profile, Skills tab, interview timeline, files, offer letter, CTC breakdown, notes, co-sourcing
+- **AI resume parser**: CV parsing stores `parsed_keywords` with skills, tools, experience, education, industries, certifications, languages, and summary tags
 
 ### Jobs (`/jobs`)
 - Tabs: **Open · On Hold · Closed · Filled**
 - Each job card shows headcount and live pipeline counters (in pipeline / shortlisted / appointed / joined)
 - **Import button** → bulk job import from LinkedIn/Indeed export format (see Section 5)
 - **New Job** modal: title, designation, site, headcount, priority, salary range, target DOJ
+
+### Automation (`/automation`)
+- Sidebar placement: appears immediately after **Jobs**
+- Admin/HR Manager only
+- Tabs: **Rules · Templates · History · Settings**
+- **Rules**: enable/disable automated follow-ups, alerts, stale job checks, and digests
+- **Templates**: manage WhatsApp and Email message copy with supported variables
+- **History**: review automation runs and communication logs
+- **Settings**: configure provider credentials, dry-run mode, and test delivery
 
 ### JDs & Forms (`/jds`)
 - Create Job Descriptions and attach Assessment Forms
@@ -160,9 +186,10 @@ https://your-domain.com/f/FORM_ID
 | 9 | Schedule an interview | `/my-activity` |
 | 10 | Log a WhatsApp communication | `/my-activity` → Log Communication |
 | 11 | Import jobs from sample Excel | `/jobs` → Import |
-| 12 | Create a second user (Recruiter role) | `/users` |
-| 13 | Log in as Recruiter; verify they only see own candidates | — |
-| 14 | Check dashboard stats update | `/dashboard` |
+| 12 | Verify Automation tab appears after Jobs for Admin/HR Manager | Sidebar → `/automation` |
+| 13 | Create a second user (Recruiter role) | `/users` |
+| 14 | Log in as Recruiter; verify they only see own candidates and no Automation tab | — |
+| 15 | Check dashboard stats update | `/dashboard` |
 
 ---
 
@@ -173,8 +200,9 @@ https://your-domain.com/f/FORM_ID
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API |
+| `CRON_SECRET` | Long random string used by Vercel Cron for `/api/automation/run` |
 
-> All other config (Google Drive, AI keys) is stored in the database via the Settings page — no additional env vars needed.
+> Google Drive, AI keys, Twilio, and Resend credentials are stored in the database via Settings/Automation pages.
 
 ---
 
@@ -184,6 +212,7 @@ https://your-domain.com/f/FORM_ID
 ats.live/
 ├── app/
 │   ├── (app)/               # Authenticated pages
+│   │   ├── automation/      # Follow-up rules, templates, history, settings
 │   │   ├── candidates/      # Pipeline + Kanban view
 │   │   ├── dashboard/       # Stats overview
 │   │   ├── hod-portal/      # HOD-only view
@@ -206,3 +235,54 @@ ats.live/
 ├── .env.local.example       # Copy → .env.local
 └── USER_MANUAL.md           # This file
 ```
+
+---
+
+## 10. Change Log
+
+> Add a new entry here every time you make a change. Format: `- [YYYY-MM-DD] What was done | Next step`
+> Newest first.
+
+<!-- CHANGE LOG START -->
+- [2026-05-06] Resume keyword intelligence added with parsed keyword storage, skill search, candidate keyword badges, and job ranked-candidate view | Run `supabase/migrations/20260506120000_resume_keywords.sql`
+- [2026-05-06] Fixed candidate page break/404 compatibility issue | Verify candidate detail links with real candidate IDs after login
+- [2026-05-06] Automation load now reports missing DB migration clearly; setup docs call out the Automation migration | Run `supabase/migrations/20260506090000_followup_automation.sql` on any existing Supabase project missing Automation tables
+- [2026-05-06] User manual updated for Automation sidebar placement after Jobs and Automation module usage | —
+- [2026-05-06] Follow-up Automation module added - 6 new DB tables, 24 rules, Twilio + Resend delivery | Schema migration required: run `supabase/migrations/20260506090000_followup_automation.sql`
+- [2026-05-06] Initial USER_MANUAL.md created with setup, roles, modules, import, and env var docs | —
+<!-- CHANGE LOG END -->
+
+---
+
+## 11. Bug Fix Log
+
+> Every bug fix must be logged here. Format: `- [YYYY-MM-DD] **Bug:** description | **Fix:** what was done | **File(s):** path(s)`
+> Newest first.
+
+<!-- BUG LOG START -->
+- [2026-05-06] **Bug:** Candidate page could break or show 404 when using `/candidate`, `/candidate/:id`, `/candidates/:id`, or redirected candidate links after login | **Fix:** Added compatibility redirects, preserved `next` through login, and made invalid candidate IDs show a recoverable panel message | **File(s):** `middleware.ts`, `app/login/page.tsx`, `app/(app)/candidates/page.tsx`, `app/(app)/candidates/candidates-client.tsx`, `components/candidate-detail-panel.tsx`, `app/api/candidates/[id]/route.ts`, candidate compatibility route files
+<!-- BUG LOG END -->
+
+---
+
+## 12. Major Updates
+
+> Log significant milestones here: new features, breaking changes, schema updates, new integrations.
+> Each entry gets its own sub-header. Newest first.
+
+### [2026-05-06] — Initial Release
+### [2026-05-06] - Follow-up Automation Module
+- New module: `/automation` (Admin + HR Manager only)
+- 6 new tables: `message_templates`, `automation_rules`, `candidate_followups`, `communication_logs`, `automation_runs`, `automation_settings`
+- 24 pre-built automation rules for candidate engagement, recruiter alerts, stale jobs, and digests
+- WhatsApp delivery via Twilio; Email delivery via Resend
+- Vercel Cron runs evaluator every 15 minutes at `/api/automation/run`
+- All sent candidate messages appear in the existing candidate communication tracker
+- Dry-run mode for safe testing before going live
+
+### [2026-05-06] - Initial Release
+- Full ATS launched: Candidates, Jobs, JDs, My Activity, Dashboard, Masters, Users, Settings, HOD Portal
+- Schema: `schema_v3.sql`
+- Google Drive integration (service account + Shared Drive)
+- Public form links (`/f/[id]`) with no-auth access
+- Bulk import for candidates and jobs (Excel/CSV)

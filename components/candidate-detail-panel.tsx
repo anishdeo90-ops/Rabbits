@@ -63,12 +63,20 @@ function Textarea({ field, rows = 3, placeholder }: { field: keyof Candidate; ro
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Tab = "overview" | "telephonic" | "gf" | "pi" | "comms" | "files" | "forms" | "offer" | "final" | "notes" | "history";
+type Tab = "overview" | "keywords" | "telephonic" | "gf" | "pi" | "comms" | "files" | "forms" | "offer" | "final" | "notes" | "history";
 
 interface CommEntry {
   id: string; type: string; direction: string; subject?: string; content: string;
   template_used?: string; created_at: string;
   profiles?: { name: string };
+}
+interface AutomationFollowupEntry {
+  id: string;
+  status: string;
+  scheduled_at: string;
+  executed_at?: string | null;
+  error_message?: string | null;
+  automation_rules?: { name?: string; trigger_type?: string; action_type?: string } | null;
 }
 interface FileEntry {
   id: string; file_name: string; storage_path: string; file_category: string;
@@ -152,6 +160,26 @@ function formatBytes(b?: number) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
+function KeywordPills({ values, accent = "gray" }: { values?: string[]; accent?: "gray" | "blue" | "green" | "red" }) {
+  if (!values?.length) return <span className="text-xs text-gray-300">None captured</span>;
+  const color = accent === "blue"
+    ? "bg-blue-50 text-blue-700 border-blue-200"
+    : accent === "green"
+      ? "bg-green-50 text-green-700 border-green-200"
+      : accent === "red"
+        ? "bg-red-50 text-red-700 border-red-200"
+        : "bg-gray-100 text-gray-600 border-gray-200";
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {values.map(value => (
+        <span key={value} className={`text-xs px-2 py-0.5 rounded-full border font-medium ${color}`}>
+          {value}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
   candidateId: string;
@@ -167,6 +195,7 @@ interface Props {
 export default function DetailPanel({ candidateId, profile, sites, designations, sources, recruiters, onClose, onUpdated }: Props) {
   const [tab, setTab]           = useState<Tab>("overview");
   const [cand, setCand]         = useState<Candidate | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [coSourcers, setCoSourcers] = useState<CoSourcer[]>([]);
   const [form, setForm]         = useState<Partial<Candidate>>({});
   const [saving, setSaving]     = useState(false);
@@ -185,6 +214,8 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   const [logContent, setLogContent]     = useState("");
   const [logTemplate, setLogTemplate]   = useState("");
   const [savingLog, setSavingLog]       = useState(false);
+  const [automationFollowups, setAutomationFollowups] = useState<AutomationFollowupEntry[]>([]);
+  const [automationLoading, setAutomationLoading] = useState(false);
   // Email composer
   const [showEmailComposer, setShowEmailComposer] = useState(false);
   const [emailTemplate, setEmailTemplate]         = useState("");
@@ -243,8 +274,18 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   const canDelete = isAdmin || (!cand ? true : cand.created_by === profile.id || cand.hr_id === profile.id);
 
   const fetchCandidate = useCallback(async () => {
+    setLoadError(null);
+    setCand(null);
     const res = await fetch(`/api/candidates/${candidateId}`);
-    if (!res.ok) return;
+    if (!res.ok) {
+      let message = "Candidate not found or no longer accessible.";
+      try {
+        const err = await res.json();
+        if (err?.error) message = err.error;
+      } catch { /* ignore malformed error responses */ }
+      setLoadError(message);
+      return;
+    }
     const json = await res.json();
     setCand(json.data); setForm(json.data);
     const csRes = await fetch(`/api/co-sourcers?candidate_id=${candidateId}`);
@@ -257,6 +298,16 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     const res = await fetch(`/api/candidates/${candidateId}/communications`);
     if (res.ok) { const j = await res.json(); setComms(j.data ?? []); }
     setCommsLoading(false);
+  }, [candidateId]);
+
+  const fetchAutomationFollowups = useCallback(async () => {
+    setAutomationLoading(true);
+    try {
+      const res = await fetch(`/api/automation/followups?candidate_id=${candidateId}`);
+      if (res.ok) { const j = await res.json(); setAutomationFollowups(j.data ?? []); }
+    } finally {
+      setAutomationLoading(false);
+    }
   }, [candidateId]);
 
   const fetchFiles = useCallback(async () => {
@@ -301,7 +352,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   }, [candidateId]);
 
   useEffect(() => { fetchCandidate(); }, [fetchCandidate]);
-  useEffect(() => { if (tab === "comms") fetchComms(); }, [tab, fetchComms]);
+  useEffect(() => { if (tab === "comms") { fetchComms(); fetchAutomationFollowups(); } }, [tab, fetchComms, fetchAutomationFollowups]);
   useEffect(() => { if (tab === "files") fetchFiles(); }, [tab, fetchFiles]);
   useEffect(() => { if (tab === "forms") fetchForms(); }, [tab, fetchForms]);
   useEffect(() => { if (tab === "history") fetchHistory(); }, [tab, fetchHistory]);
@@ -333,7 +384,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
         "gf_issued", "shortlisted_by_mgmt", "gf_issue_date", "gf_received_date",
         "gf_verified", "gf_verification_report", "addr_verification_shared", "addr_verification_received",
         "remarks", "final_status", "final_action", "file_no", "doj", "doj_potential", "doj_actual",
-        "hard_copy", "staffingo_emp_id", "custom_data",
+        "hard_copy", "staffingo_emp_id", "custom_data", "parsed_keywords",
       ];
       const payload: Record<string, unknown> = {};
       for (const key of WRITABLE) {
@@ -436,6 +487,20 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   async function deleteComm(commId: string) {
     const res = await fetch(`/api/candidates/${candidateId}/communications?comm_id=${commId}`, { method: "DELETE" });
     if (res.ok) { fetchComms(); toast.success("Deleted"); }
+  }
+
+  async function cancelAutomationFollowup(followupId: string) {
+    const res = await fetch(`/api/automation/followups/${followupId}`, { method: "PATCH" });
+    if (res.ok) { fetchAutomationFollowups(); toast.success("Follow-up cancelled"); }
+    else { const e = await res.json(); toast.error(e.error ?? "Cancel failed"); }
+  }
+
+  function followupCountdown(iso: string) {
+    const diff = new Date(iso).getTime() - Date.now();
+    if (diff <= 0) return "due now";
+    const hours = Math.floor(diff / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
+    return `fires in ${hours}h ${minutes}m`;
   }
 
   async function uploadFile(file: File) {
@@ -576,6 +641,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     try {
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("candidate_id", candidateId);
       const res = await fetch("/api/parse-resume", { method: "POST", body: fd });
       if (!res.ok) { const e = await res.json(); toast.error(e.error ?? "Parse failed"); return; }
       const j = await res.json();
@@ -601,7 +667,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     if (!cand) return;
     const allowed: (keyof Candidate)[] = [
       "name","email","mobile","current_designation","current_location",
-      "present_salary","expected_salary","notice_period_days","naukri_profile_url","ai_summary",
+      "present_salary","expected_salary","notice_period_days","naukri_profile_url","ai_summary","parsed_keywords",
     ];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) {
@@ -652,6 +718,23 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     window.open(`https://wa.me/${mobile}?text=${encodeURIComponent(text)}`);
   }
 
+  if (loadError) return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/30" onClick={onClose} />
+      <div className="w-[600px] bg-white flex flex-col items-center justify-center px-8 text-center">
+        <AlertTriangle className="text-amber-500 mb-3" size={28} />
+        <h2 className="text-base font-semibold text-gray-900">Candidate could not be opened</h2>
+        <p className="text-sm text-gray-500 mt-2">{loadError}</p>
+        <button
+          onClick={onClose}
+          className="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          Back to candidates
+        </button>
+      </div>
+    </div>
+  );
+
   if (!cand) return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
@@ -666,6 +749,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview",   label: "Overview"    },
+    { key: "keywords",   label: "Skills"      },
     { key: "telephonic", label: "Telephonic"  },
     { key: "gf",         label: "GF / Screen" },
     { key: "pi",         label: "PI Rounds"   },
@@ -832,6 +916,59 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
           )}
 
           {/* ── TELEPHONIC ── */}
+          {tab === "keywords" && (
+            <div className="space-y-4">
+              <div className="border border-blue-200 bg-blue-50/40 rounded-xl p-3">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <p className="text-xs font-semibold text-blue-700">Skills &amp; Keywords</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Extracted from the candidate CV.</p>
+                  </div>
+                  <button onClick={() => parseFileRef.current?.click()} disabled={parsing}
+                    className="flex items-center gap-1.5 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-60">
+                    <Sparkles size={11} /> {parsing ? "Parsing..." : "Re-parse CV"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-gray-400 font-medium mb-1">Experience</p>
+                    <span className="inline-flex text-xs px-2 py-1 rounded-full bg-white border border-blue-200 text-blue-700 font-semibold">
+                      {cand.parsed_keywords?.years_experience != null ? `${cand.parsed_keywords.years_experience} years` : "Not captured"}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 font-medium mb-1">Education</p>
+                    <p className="text-xs text-gray-700">{cand.parsed_keywords?.education ?? "Not captured"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Skills</p>
+                    <KeywordPills values={cand.parsed_keywords?.skills} accent="blue" />
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Tools</p>
+                    <KeywordPills values={cand.parsed_keywords?.tools} />
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Summary Tags</p>
+                    <KeywordPills values={cand.parsed_keywords?.summary_tags} accent="green" />
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Industries</p>
+                    <KeywordPills values={cand.parsed_keywords?.industries} />
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Certifications</p>
+                    <KeywordPills values={cand.parsed_keywords?.certifications} />
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Languages</p>
+                    <KeywordPills values={cand.parsed_keywords?.languages} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {tab === "telephonic" && (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Tel. Int. Date"><Input field="tel_int_date" type="date" /></Field>
@@ -1046,6 +1183,48 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                   })}
                 </div>
               )}
+
+              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-700">Automations</p>
+                  <button onClick={fetchAutomationFollowups} className="text-xs text-gray-400 hover:text-gray-600">Refresh</button>
+                </div>
+                {automationLoading ? (
+                  <p className="text-xs text-gray-400 text-center py-3">Loading automation history...</p>
+                ) : automationFollowups.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-3">No automation follow-ups queued yet</p>
+                ) : (
+                  <div className="space-y-2">
+                    {automationFollowups.map(f => (
+                      <div key={f.id} className="bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-gray-800 truncate">{f.automation_rules?.name ?? "Automation follow-up"}</p>
+                            <p className="text-xs text-gray-400">
+                              {f.status === "pending" ? followupCountdown(f.scheduled_at) : f.executed_at ? `executed ${new Date(f.executed_at).toLocaleString("en-IN")}` : new Date(f.scheduled_at).toLocaleString("en-IN")}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              f.status === "pending" ? "bg-amber-100 text-amber-700" :
+                              f.status === "sent" ? "bg-green-100 text-green-700" :
+                              f.status === "failed" ? "bg-red-100 text-red-700" :
+                              "bg-gray-100 text-gray-600"
+                            }`}>{f.status}</span>
+                            {f.status === "pending" && (
+                              <button onClick={() => cancelAutomationFollowup(f.id)}
+                                className="text-xs border border-red-200 text-red-500 px-2 py-1 rounded-lg hover:bg-red-50">
+                                Cancel
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {f.error_message && <p className="text-xs text-red-500 mt-1">{f.error_message}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

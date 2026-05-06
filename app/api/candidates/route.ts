@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   const month = p.get("month");
   const status = p.get("status");
   const search = p.get("search");
+  const kwSearch = p.get("kw_search")?.trim() ?? "";
   const designId = p.get("designation_id");
   const sourceId = p.get("source_id");
   const dateFrom = p.get("date_from");
@@ -59,6 +60,24 @@ export async function GET(req: NextRequest) {
   if (dateFrom) query = query.gte("application_date", dateFrom);
   if (dateTo) query = query.lte("application_date", dateTo);
 
+  let kwTokens: string[] = [];
+  if (kwSearch) {
+    const yearMatch = kwSearch.match(/(\d+)\s*\+?\s*(?:year|yr)/i);
+    const minYears = yearMatch ? parseInt(yearMatch[1], 10) : null;
+    const skillPart = kwSearch
+      .replace(/\d+\s*\+?\s*(?:year|yr)s?/gi, "")
+      .replace(/\bin\b/gi, "")
+      .trim();
+    kwTokens = skillPart
+      .split(/[\s,]+/)
+      .map((s) => s.toLowerCase())
+      .filter((s) => s.length > 1);
+
+    if (minYears !== null) {
+      query = query.gte("kw_years_experience", minYears);
+    }
+  }
+
   if (search) {
     query = query.or(`name.ilike.%${search}%,mobile.ilike.%${search}%,email.ilike.%${search}%`);
   }
@@ -67,6 +86,24 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   let rows = data ?? [];
+
+  if (kwTokens.length > 0) {
+    rows = rows.filter((row) => {
+      const record = row as Record<string, unknown>;
+      const keywords = (record.parsed_keywords ?? {}) as Record<string, unknown>;
+      const haystack = [
+        keywords.current_role,
+        keywords.education,
+        ...(Array.isArray(keywords.skills) ? keywords.skills : []),
+        ...(Array.isArray(keywords.tools) ? keywords.tools : []),
+        ...(Array.isArray(keywords.industries) ? keywords.industries : []),
+        ...(Array.isArray(keywords.certifications) ? keywords.certifications : []),
+        ...(Array.isArray(keywords.languages) ? keywords.languages : []),
+        ...(Array.isArray(keywords.summary_tags) ? keywords.summary_tags : []),
+      ].map((value) => String(value).toLowerCase()).join(" ");
+      return kwTokens.every((token) => haystack.includes(token));
+    });
+  }
 
   if (piBy) {
     const q = piBy.toLowerCase();
@@ -77,7 +114,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ data: rows, count: piBy ? rows.length : count });
+  return NextResponse.json({ data: rows, count: piBy || kwTokens.length > 0 ? rows.length : count });
 }
 
 export async function POST(req: NextRequest) {

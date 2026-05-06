@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { enqueueInterviewTriggers, enqueueStageChangeTriggers } from "@/lib/automation/triggers";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -85,7 +86,10 @@ export async function POST(req: NextRequest) {
     await supabase.from("candidates")
       .update({ final_status: newStage, updated_by: user.id })
       .eq("id", candidate_id);
+    await enqueueStageChangeTriggers(candidate_id, newStage);
   }
+
+  await enqueueInterviewTriggers(data);
 
   return NextResponse.json({ data }, { status: 201 });
 }

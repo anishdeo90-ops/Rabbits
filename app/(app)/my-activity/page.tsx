@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Users, Calendar, CheckCircle, Clock, MessageSquare, Phone, Mail, Trash2 } from "lucide-react";
+import { Users, Calendar, CheckCircle, Clock, MessageSquare, Trash2, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface ActivityStats { candidates_added: number; interviews_scheduled: number; joinings: number; pending_followups: number; }
-interface Interview { id: string; round: string; scheduled_at: string; status: string; meet_link?: string; interviewer_name?: string; candidate_name?: string; designation_name?: string; }
+interface Interview { id: string; round: string; scheduled_at: string; status: string; meet_link?: string; interviewer_name?: string; candidate_name?: string; designation_name?: string; recruiter_id?: string; recruiter_name?: string; duration_mins?: number; }
+interface ProfileSummary { id: string; name: string; role: string; }
 interface CandidateRow { id: string; name: string; final_status?: string; updated_at: string; }
 interface Joining { id: string; name: string; site_id?: string; doj_actual?: string; file_no?: string; }
 interface CandidateSuggestion { id: string; name: string; designation_name?: string; }
@@ -45,6 +46,8 @@ const CHANNEL_COLORS: Record<string, string> = {
   other:     "bg-gray-100 text-gray-600",
 };
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 function channelIcon(type: string) {
   return CHANNELS.find(c => c.value === type)?.icon ?? "📝";
 }
@@ -53,6 +56,13 @@ export default function MyActivityPage() {
   const [period, setPeriod]             = useState("");
   const [stats, setStats]               = useState<ActivityStats | null>(null);
   const [interviews, setInterviews]     = useState<Interview[]>([]);
+  const [profile, setProfile]           = useState<ProfileSummary | null>(null);
+  const [recruiters, setRecruiters]     = useState<ProfileSummary[]>([]);
+  const [recruiterFilter, setRecruiterFilter] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
   const [candidates, setCandidates]     = useState<CandidateRow[]>([]);
   const [joinings, setJoinings]         = useState<Joining[]>([]);
   const [loading, setLoading]           = useState(true);
@@ -129,15 +139,18 @@ export default function MyActivityPage() {
       } else if (period === "custom") {
         dateFrom = customFrom; dateTo = customTo;
       }
-      const params = `date_from=${dateFrom}&date_to=${dateTo}`;
+      const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
+      if (recruiterFilter) params.set("recruiter_id", recruiterFilter);
       const res  = await fetch(`/api/my-activity?${params}`);
       const json = await res.json();
       setStats(json.stats);
       setInterviews(json.upcoming_interviews ?? []);
+      setProfile(json.viewer ?? null);
+      setRecruiters(json.recruiters ?? []);
       setCandidates(json.recent_candidates ?? []);
       setJoinings(json.joinings ?? []);
     } finally { setLoading(false); }
-  }, [period, customFrom, customTo]);
+  }, [period, customFrom, customTo, recruiterFilter]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => { fetchComms(); }, [fetchComms]);
@@ -146,6 +159,15 @@ export default function MyActivityPage() {
     const d = new Date(iso);
     return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + " · " +
       d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  }
+  function formatTime(iso: string) {
+    return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  }
+  function dateKey(date: Date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+  function moveCalendarMonth(delta: number) {
+    setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
   }
   function formatRelative(iso: string) {
     const diff = Date.now() - new Date(iso).getTime();
@@ -164,6 +186,22 @@ export default function MyActivityPage() {
     "PI Done": "bg-indigo-100 text-indigo-700", "Rejected/Dropped": "bg-red-100 text-red-600",
     "On Hold": "bg-yellow-100 text-yellow-700",
   };
+
+  const canViewTeam = ["admin", "hr_manager"].includes(profile?.role ?? "");
+  const monthLabel = calendarMonth.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const interviewsByDate = interviews.reduce<Record<string, Interview[]>>((acc, interview) => {
+    const key = dateKey(new Date(interview.scheduled_at));
+    acc[key] = [...(acc[key] ?? []), interview];
+    return acc;
+  }, {});
+  const firstCalendarDate = new Date(calendarMonth);
+  firstCalendarDate.setDate(1 - firstCalendarDate.getDay());
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(firstCalendarDate);
+    day.setDate(firstCalendarDate.getDate() + index);
+    return day;
+  });
+  const todaysKey = dateKey(new Date());
 
   // Comms filtered by channel
   const filteredComms = commFilter === "all" ? comms : comms.filter(c => c.type === commFilter);
@@ -220,7 +258,7 @@ export default function MyActivityPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -267,7 +305,7 @@ export default function MyActivityPage() {
       </div>
 
       {/* ── Communication Tracker ── */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="order-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <MessageSquare size={16} className="text-brand-500" />
@@ -332,14 +370,120 @@ export default function MyActivityPage() {
       </div>
 
       {/* Upcoming Interviews */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-800 text-sm">Upcoming Interviews</h3>
-          <button onClick={() => setShowScheduleModal(true)} className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-brand-600">
-            + Schedule New
-          </button>
+      <div className="order-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-purple-500" />
+            <h3 className="font-semibold text-gray-800 text-sm">Upcoming Interview Calendar</h3>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{interviews.length}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {canViewTeam && (
+              <label className="flex items-center gap-2 text-xs text-gray-500">
+                <Filter size={14} />
+                <select
+                  value={recruiterFilter}
+                  onChange={e => setRecruiterFilter(e.target.value)}
+                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white min-w-44"
+                >
+                  <option value="">All recruiters</option>
+                  {recruiters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </label>
+            )}
+            <button
+              onClick={() => moveCalendarMonth(-1)}
+              className="w-8 h-8 inline-flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50"
+              title="Previous month"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="w-36 text-center text-sm font-semibold text-gray-800">{monthLabel}</div>
+            <button
+              onClick={() => moveCalendarMonth(1)}
+              className="w-8 h-8 inline-flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50"
+              title="Next month"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button onClick={() => setShowScheduleModal(true)} className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-brand-600">
+              + Schedule New
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-7 bg-gray-50 border-b border-gray-100">
+              {WEEKDAYS.map(day => (
+                <div key={day} className="px-2.5 py-1.5 text-xs font-semibold text-gray-500">{day}</div>
+              ))}
+            </div>
+            {loading ? (
+              <div className="px-5 py-10 text-center text-gray-400 text-sm">Loading...</div>
+            ) : interviews.length === 0 ? (
+              <div className="px-5 py-10 text-center">
+                <Calendar size={28} className="mx-auto text-gray-200 mb-2" />
+                <p className="text-sm text-gray-400">No upcoming interviews</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-7">
+                {calendarDays.map(day => {
+                  const key = dateKey(day);
+                  const dayInterviews = (interviewsByDate[key] ?? []).sort((a, b) =>
+                    new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
+                  );
+                  const isCurrentMonth = day.getMonth() === calendarMonth.getMonth();
+                  const isToday = key === todaysKey;
+
+                  return (
+                    <div key={key} className={`min-h-28 border-r border-b border-gray-100 p-1.5 ${isCurrentMonth ? "bg-white" : "bg-gray-50/60"}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`w-6 h-6 inline-flex items-center justify-center rounded-full text-xs font-semibold ${
+                          isToday ? "bg-brand-500 text-white" : isCurrentMonth ? "text-gray-700" : "text-gray-300"
+                        }`}>
+                          {day.getDate()}
+                        </span>
+                        {dayInterviews.length > 0 && (
+                          <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">
+                            {dayInterviews.length}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        {dayInterviews.slice(0, 4).map(iv => (
+                          <div key={iv.id} className="rounded-md border border-purple-100 bg-purple-50 px-1.5 py-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-bold text-purple-700">{formatTime(iv.scheduled_at)}</span>
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                iv.status === "confirmed" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
+                              }`}>
+                                {iv.status}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-semibold text-gray-900 truncate mt-0.5">{iv.candidate_name ?? "Unknown candidate"}</p>
+                            <p className="text-[11px] text-gray-500 truncate">
+                              {ROUND_LABELS[iv.round] ?? iv.round}{iv.designation_name ? ` - ${iv.designation_name}` : ""}
+                            </p>
+                            {canViewTeam && <p className="text-[11px] text-gray-400 truncate">{iv.recruiter_name ?? "Unassigned recruiter"}</p>}
+                            {iv.meet_link && (
+                              <a href={iv.meet_link} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-brand-600 hover:underline">
+                                Join
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                        {dayInterviews.length > 4 && (
+                          <div className="text-[11px] text-gray-400 font-medium px-1">+{dayInterviews.length - 4} more</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
@@ -378,7 +522,7 @@ export default function MyActivityPage() {
       </div>
 
       {/* Bottom 2-col grid */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="order-5 grid grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100">
             <h3 className="font-semibold text-gray-800 text-sm">My Candidates — This Period</h3>

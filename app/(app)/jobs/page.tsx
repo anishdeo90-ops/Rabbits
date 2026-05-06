@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Link2, X, Upload } from "lucide-react";
+import { BarChart3, Link2, X, Upload } from "lucide-react";
 import Link from "next/link";
-import type { Job, Master, Profile } from "@/lib/types";
+import type { Candidate, Job, Master, Profile } from "@/lib/types";
 import toast from "react-hot-toast";
 
 interface FormSummary { id: string; name: string; type: string; }
 interface FormJobLink { form_id: string; forms: { id: string; name: string; type: string }; }
+interface RankedCandidate {
+  fit_score: number;
+  fit_breakdown: {
+    matched_skills?: string[];
+    missing_skills?: string[];
+    ai_reasoning?: string;
+  };
+  scored_at: string;
+  candidates: Candidate | null;
+}
 
 type JobTab = "open" | "on_hold" | "closed" | "filled";
 
@@ -36,6 +46,18 @@ const JOB_PLATFORM_OPTIONS = [
   "Other",
 ];
 
+function FitScoreBar({ score }: { score: number }) {
+  const color = score >= 80 ? "bg-green-500" : score >= 60 ? "bg-yellow-500" : "bg-red-400";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 bg-gray-100 rounded-full h-2">
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${score}%` }} />
+      </div>
+      <span className="text-sm font-semibold w-10 text-right">{score}%</span>
+    </div>
+  );
+}
+
 export default function JobsPage() {
   const [tab, setTab]         = useState<JobTab>("open");
   const [jobs, setJobs]       = useState<Job[]>([]);
@@ -49,6 +71,9 @@ export default function JobsPage() {
   const [allForms, setAllForms] = useState<FormSummary[]>([]);
   const [linkedForms, setLinkedForms] = useState<string[]>([]); // form_ids linked to current job
   const [linkLoading, setLinkLoading] = useState(false);
+  const [rankingJob, setRankingJob] = useState<Job | null>(null);
+  const [rankedCandidates, setRankedCandidates] = useState<RankedCandidate[]>([]);
+  const [rankingLoading, setRankingLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -139,6 +164,20 @@ export default function JobsPage() {
         body: JSON.stringify({ form_id: formId, job_id: linkingJob.id }),
       });
       setLinkedForms(prev => [...prev, formId]);
+    }
+  }
+
+  async function openRankingModal(job: Job) {
+    setRankingJob(job);
+    setRankingLoading(true);
+    setRankedCandidates([]);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/ranked-candidates`);
+      const json = await res.json();
+      if (res.ok) setRankedCandidates(json.data ?? []);
+      else toast.error(json.error ?? "Failed to load ranked candidates");
+    } finally {
+      setRankingLoading(false);
     }
   }
 
@@ -289,6 +328,11 @@ export default function JobsPage() {
                     onClick={() => openLinkModal(job)}
                     className="text-xs text-blue-600 border border-blue-200 px-2.5 py-1 rounded-lg hover:bg-blue-50 flex items-center gap-1">
                     <Link2 size={11} /> Forms
+                  </button>
+                  <button
+                    onClick={() => openRankingModal(job)}
+                    className="text-xs text-green-600 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-50 flex items-center gap-1">
+                    <BarChart3 size={11} /> Ranked
                   </button>
                   <button
                     onClick={() => {
@@ -617,6 +661,83 @@ export default function JobsPage() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ranked Candidates Modal */}
+      {rankingJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setRankingJob(null)} />
+          <div className="relative bg-white rounded-2xl p-6 w-[720px] max-h-[85vh] overflow-y-auto shadow-2xl z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">Ranked Candidates</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{rankingJob.title}</p>
+              </div>
+              <button onClick={() => setRankingJob(null)} className="text-gray-400 hover:text-gray-600">
+                <X size={18} />
+              </button>
+            </div>
+            {rankingLoading ? (
+              <div className="text-center py-10 text-gray-400 text-sm">Loading rankings...</div>
+            ) : rankedCandidates.length === 0 ? (
+              <div className="text-center py-10 text-gray-400 text-sm">
+                No scored candidates yet. Parse resumes with this job selected to generate rankings.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {rankedCandidates.map((row, idx) => {
+                  const candidate = row.candidates;
+                  const rankColor = idx === 0
+                    ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                    : idx === 1
+                      ? "bg-gray-100 text-gray-700 border-gray-200"
+                      : idx === 2
+                        ? "bg-orange-100 text-orange-800 border-orange-200"
+                        : "bg-white text-gray-500 border-gray-200";
+                  return (
+                    <Link
+                      key={`${candidate?.id ?? idx}-${row.scored_at}`}
+                      href={candidate?.id ? `/candidates?candidate=${candidate.id}` : "#"}
+                      className="block border border-gray-200 rounded-xl p-4 hover:border-brand-200 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs font-bold flex-shrink-0 ${rankColor}`}>
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">{candidate?.name ?? "Candidate unavailable"}</p>
+                              <p className="text-xs text-gray-400 truncate">{candidate?.current_designation ?? candidate?.email ?? ""}</p>
+                            </div>
+                            <div className="w-40 flex-shrink-0">
+                              <FitScoreBar score={row.fit_score} />
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(row.fit_breakdown.matched_skills ?? []).map(skill => (
+                              <span key={`m-${skill}`} className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
+                                {skill}
+                              </span>
+                            ))}
+                            {(row.fit_breakdown.missing_skills ?? []).map(skill => (
+                              <span key={`x-${skill}`} className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                          {row.fit_breakdown.ai_reasoning && (
+                            <p className="text-xs text-gray-500 italic leading-relaxed">{row.fit_breakdown.ai_reasoning}</p>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

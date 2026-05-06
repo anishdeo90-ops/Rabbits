@@ -44,13 +44,19 @@ export async function middleware(request: NextRequest) {
 
   if (!isLoggedIn && !isLoginPage) {
     const url = request.nextUrl.clone();
+    const next = `${pathname}${request.nextUrl.search}`;
     url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("next", next);
     return NextResponse.redirect(url);
   }
 
   if (isLoggedIn && isLoginPage) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    const next = request.nextUrl.searchParams.get("next");
+    const safeNext = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login")
+      ? next
+      : "/dashboard";
+    const url = new URL(safeNext, request.url);
     return NextResponse.redirect(url);
   }
 
