@@ -276,7 +276,7 @@ ats.live/
 - 6 new tables: `message_templates`, `automation_rules`, `candidate_followups`, `communication_logs`, `automation_runs`, `automation_settings`
 - 24 pre-built automation rules for candidate engagement, recruiter alerts, stale jobs, and digests
 - WhatsApp delivery via Twilio; Email delivery via Resend
-- Vercel Cron runs evaluator every 15 minutes at `/api/automation/run`
+- Vercel Cron runs evaluator daily at `/api/automation/run` on Hobby-compatible deployments; use a Pro plan if you need the original 15-minute cadence
 - All sent candidate messages appear in the existing candidate communication tracker
 - Dry-run mode for safe testing before going live
 
