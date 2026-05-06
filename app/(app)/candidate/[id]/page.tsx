@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-export default async function CandidateRedirect({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default function CandidateRedirect({ params }: { params: { id: string } }) {
+  const { id } = params;
   redirect(`/candidates?candidate=${encodeURIComponent(id)}`);
 }

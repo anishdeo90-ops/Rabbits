@@ -3,11 +3,11 @@ import { redirect } from "next/navigation";
 import CandidatesClient from "./candidates-client";
 import type { Master, Profile } from "@/lib/types";
 
-export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ status?: string; hr_id?: string; candidate?: string }> }) {
+export default async function CandidatesPage({ searchParams }: { searchParams?: { status?: string; hr_id?: string; candidate?: string } }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const params = await searchParams;
+  const params = searchParams ?? {};
 
   const [
     { data: profile },

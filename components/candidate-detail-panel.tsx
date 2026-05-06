@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, createContext, useContext, useRef } from "react";
 import { X, ExternalLink, Trash2, Save, AlertTriangle, UserPlus, Mail, MessageSquare, Phone, Upload, FileText, Calendar, Video, Plus, Send, Paperclip, Sparkles, ChevronDown, ChevronUp, Lock, Unlock, CheckCircle } from "lucide-react";
-import type { Candidate, CoSourcer, Master, Profile, CandidateOffer } from "@/lib/types";
+import type { Candidate, CoSourcer, Master, Profile, CandidateOffer, ParsedKeywords } from "@/lib/types";
 import { computeCTC, CTC_SYSTEM_TEMPLATES, generateOfferLetterHTML, type CTCBreakdown } from "@/lib/ctc";
 import toast from "react-hot-toast";
 
@@ -160,25 +160,45 @@ function formatBytes(b?: number) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
+async function readJson<T = { data?: unknown; error?: string }>(res: Response): Promise<T | null> {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 function KeywordPills({ values, accent = "gray" }: { values?: string[]; accent?: "gray" | "blue" | "green" | "red" }) {
-  if (!values?.length) return <span className="text-xs text-gray-300">None captured</span>;
+  if (!values?.length) return <span className="text-xs text-gray-400">None captured</span>;
   const color = accent === "blue"
-    ? "bg-blue-50 text-blue-700 border-blue-200"
+    ? "bg-brand-50 text-brand-700 border-brand-200"
     : accent === "green"
-      ? "bg-green-50 text-green-700 border-green-200"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : accent === "red"
         ? "bg-red-50 text-red-700 border-red-200"
-        : "bg-gray-100 text-gray-600 border-gray-200";
+        : "bg-gray-50 text-gray-600 border-gray-200";
   return (
     <div className="flex flex-wrap gap-1.5">
       {values.map(value => (
-        <span key={value} className={`text-xs px-2 py-0.5 rounded-full border font-medium ${color}`}>
+        <span key={value} className={`text-xs px-2 py-0.5 rounded-lg border font-medium ${color}`}>
           {value}
         </span>
       ))}
     </div>
   );
 }
+
+type KeywordArrayField =
+  | "skills"
+  | "tools"
+  | "projects"
+  | "previous_companies"
+  | "summary_tags"
+  | "industries"
+  | "certifications"
+  | "languages";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
@@ -276,35 +296,57 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   const fetchCandidate = useCallback(async () => {
     setLoadError(null);
     setCand(null);
-    const res = await fetch(`/api/candidates/${candidateId}`);
-    if (!res.ok) {
-      let message = "Candidate not found or no longer accessible.";
-      try {
-        const err = await res.json();
+    try {
+      const res = await fetch(`/api/candidates/${candidateId}`);
+      if (!res.ok) {
+        let message = "Candidate not found or no longer accessible.";
+        const err = await readJson<{ error?: string }>(res);
         if (err?.error) message = err.error;
-      } catch { /* ignore malformed error responses */ }
-      setLoadError(message);
-      return;
+        setLoadError(message);
+        return;
+      }
+      const json = await readJson<{ data?: Candidate }>(res);
+      if (!json?.data) {
+        setLoadError("Candidate details could not be loaded.");
+        return;
+      }
+      setCand(json.data); setForm(json.data);
+      try {
+        const csRes = await fetch(`/api/co-sourcers?candidate_id=${candidateId}`);
+        if (csRes.ok) {
+          const csJson = await readJson<{ data?: CoSourcer[] }>(csRes);
+          setCoSourcers(csJson?.data ?? []);
+        } else {
+          setCoSourcers([]);
+        }
+      } catch {
+        setCoSourcers([]);
+      }
+    } catch {
+      setLoadError("Candidate details could not be loaded. Check the dev server and try again.");
+      setCoSourcers([]);
     }
-    const json = await res.json();
-    setCand(json.data); setForm(json.data);
-    const csRes = await fetch(`/api/co-sourcers?candidate_id=${candidateId}`);
-    const csJson = await csRes.json();
-    setCoSourcers(csJson.data ?? []);
   }, [candidateId]);
 
   const fetchComms = useCallback(async () => {
     setCommsLoading(true);
-    const res = await fetch(`/api/candidates/${candidateId}/communications`);
-    if (res.ok) { const j = await res.json(); setComms(j.data ?? []); }
-    setCommsLoading(false);
+    try {
+      const res = await fetch(`/api/candidates/${candidateId}/communications`);
+      if (res.ok) { const j = await readJson<{ data?: CommEntry[] }>(res); setComms(j?.data ?? []); }
+    } catch {
+      setComms([]);
+    } finally {
+      setCommsLoading(false);
+    }
   }, [candidateId]);
 
   const fetchAutomationFollowups = useCallback(async () => {
     setAutomationLoading(true);
     try {
       const res = await fetch(`/api/automation/followups?candidate_id=${candidateId}`);
-      if (res.ok) { const j = await res.json(); setAutomationFollowups(j.data ?? []); }
+      if (res.ok) { const j = await readJson<{ data?: AutomationFollowupEntry[] }>(res); setAutomationFollowups(j?.data ?? []); }
+    } catch {
+      setAutomationFollowups([]);
     } finally {
       setAutomationLoading(false);
     }
@@ -312,20 +354,30 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
 
   const fetchFiles = useCallback(async () => {
     setFilesLoading(true);
-    const res = await fetch(`/api/candidates/${candidateId}/files`);
-    if (res.ok) { const j = await res.json(); setFiles(j.data ?? []); }
-    setFilesLoading(false);
+    try {
+      const res = await fetch(`/api/candidates/${candidateId}/files`);
+      if (res.ok) { const j = await readJson<{ data?: FileEntry[] }>(res); setFiles(j?.data ?? []); }
+    } catch {
+      setFiles([]);
+    } finally {
+      setFilesLoading(false);
+    }
   }, [candidateId]);
 
   const fetchForms = useCallback(async () => {
     setFormsLoading(true);
     try {
       const [responsesRes, formsRes] = await Promise.all([
-        fetch(`/api/form-responses?candidate_id=${candidateId}`).then(r => r.json()),
-        fetch("/api/forms").then(r => r.json()),
+        fetch(`/api/form-responses?candidate_id=${candidateId}`),
+        fetch("/api/forms"),
       ]);
-      setFormResponses(responsesRes.data ?? []);
-      setLinkedForms(formsRes.data ?? []);
+      const responsesJson = responsesRes.ok ? await readJson<{ data?: typeof formResponses }>(responsesRes) : null;
+      const formsJson = formsRes.ok ? await readJson<{ data?: typeof linkedForms }>(formsRes) : null;
+      setFormResponses(responsesJson?.data ?? []);
+      setLinkedForms(formsJson?.data ?? []);
+    } catch {
+      setFormResponses([]);
+      setLinkedForms([]);
     } finally {
       setFormsLoading(false);
     }
@@ -335,7 +387,9 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     setHistoryLoading(true);
     try {
       const res = await fetch(`/api/activity-logs?candidate_id=${candidateId}`);
-      if (res.ok) { const j = await res.json(); setHistoryEntries(j.data ?? []); }
+      if (res.ok) { const j = await readJson<{ data?: typeof historyEntries }>(res); setHistoryEntries(j?.data ?? []); }
+    } catch {
+      setHistoryEntries([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -345,7 +399,9 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     setOffersLoading(true);
     try {
       const res = await fetch(`/api/candidates/${candidateId}/offers`);
-      if (res.ok) { const j = await res.json(); setOffers(j.data ?? []); }
+      if (res.ok) { const j = await readJson<{ data?: CandidateOffer[] }>(res); setOffers(j?.data ?? []); }
+    } catch {
+      setOffers([]);
     } finally {
       setOffersLoading(false);
     }
@@ -735,6 +791,33 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     </div>
   );
 
+  if (loadError) return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/30" onClick={onClose} />
+      <div className="w-[600px] bg-white flex items-center justify-center p-6">
+        <div className="max-w-sm text-center space-y-3">
+          <div className="mx-auto h-10 w-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center">
+            <AlertTriangle size={20} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Could not open candidate</p>
+            <p className="text-xs text-gray-500 mt-1">{loadError}</p>
+          </div>
+          <div className="flex justify-center gap-2">
+            <button onClick={fetchCandidate}
+              className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg hover:bg-brand-600">
+              Retry
+            </button>
+            <button onClick={onClose}
+              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   if (!cand) return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
@@ -766,6 +849,35 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     "Aadhaar Card", "PAN Card", "Last 3 Payslips", "Experience Letter",
     "Educational Certificates", "Bank Details", "Passport Photo (2 copies)", "Background Check Consent",
   ];
+
+  const keywordData = ((form.parsed_keywords ?? cand.parsed_keywords ?? {}) as ParsedKeywords);
+  const keywordInputClass = `w-full border rounded-lg px-3 py-1.5 text-xs outline-none ${
+    !canEdit ? "bg-gray-50 text-gray-400 cursor-default border-gray-100" : "border-gray-200 bg-white focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+  }`;
+  const keywordTextareaClass = `${keywordInputClass} resize-none`;
+
+  function setKeywordField<K extends keyof ParsedKeywords>(field: K, value: ParsedKeywords[K] | undefined) {
+    const next: ParsedKeywords = { ...keywordData };
+    if (value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
+      delete next[field];
+    } else {
+      next[field] = value;
+    }
+    setForm(prev => ({ ...prev, parsed_keywords: next }));
+    setDirty(true);
+  }
+
+  function setKeywordArray(field: KeywordArrayField, value: string) {
+    const items = value
+      .split(/[\n,]+/)
+      .map(item => item.trim())
+      .filter(Boolean);
+    setKeywordField(field, items.length ? items : undefined);
+  }
+
+  function keywordArrayText(field: KeywordArrayField) {
+    return keywordData[field]?.join(", ") ?? "";
+  }
 
   return (
     <PanelContext.Provider value={{ form, canEdit, onChange: handleChange }}>
@@ -918,51 +1030,147 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
           {/* ── TELEPHONIC ── */}
           {tab === "keywords" && (
             <div className="space-y-4">
-              <div className="border border-blue-200 bg-blue-50/40 rounded-xl p-3">
-                <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="border border-gray-200 rounded-xl p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold text-blue-700">Skills &amp; Keywords</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Extracted from the candidate CV.</p>
+                    <p className="text-xs font-semibold text-gray-700">Skills &amp; Keywords</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Extracted from the candidate CV</p>
                   </div>
                   <button onClick={() => parseFileRef.current?.click()} disabled={parsing}
-                    className="flex items-center gap-1.5 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-60">
+                    className="flex items-center gap-1.5 text-xs border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-60">
                     <Sparkles size={11} /> {parsing ? "Parsing..." : "Re-parse CV"}
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Experience</p>
-                    <span className="inline-flex text-xs px-2 py-1 rounded-full bg-white border border-blue-200 text-blue-700 font-semibold">
-                      {cand.parsed_keywords?.years_experience != null ? `${cand.parsed_keywords.years_experience} years` : "Not captured"}
-                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={keywordData.years_experience ?? ""}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordField("years_experience", e.target.value ? Number(e.target.value) : undefined)}
+                      className={keywordInputClass}
+                      placeholder="Years"
+                    />
                   </div>
-                  <div>
+                  <div className="bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Education</p>
-                    <p className="text-xs text-gray-700">{cand.parsed_keywords?.education ?? "Not captured"}</p>
+                    <input
+                      value={keywordData.education ?? ""}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordField("education", e.target.value || undefined)}
+                      className={keywordInputClass}
+                      placeholder="Degree / qualification"
+                    />
                   </div>
-                  <div className="col-span-2">
+                  <div className="bg-gray-50 rounded-lg px-3 py-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">College</p>
+                    <input
+                      value={keywordData.college ?? ""}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordField("college", e.target.value || undefined)}
+                      className={keywordInputClass}
+                      placeholder="College / university"
+                    />
+                  </div>
+                  <div className="bg-gray-50 rounded-lg px-3 py-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Current Role</p>
+                    <input
+                      value={keywordData.current_role ?? ""}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordField("current_role", e.target.value || undefined)}
+                      className={keywordInputClass}
+                      placeholder="Current role"
+                    />
+                  </div>
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Skills</p>
-                    <KeywordPills values={cand.parsed_keywords?.skills} accent="blue" />
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("skills")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("skills", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="Python, React, SQL"
+                    />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Tools</p>
-                    <KeywordPills values={cand.parsed_keywords?.tools} />
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("tools")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("tools", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="AWS, Docker, Git"
+                    />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Projects</p>
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("projects")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("projects", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="Recruitment dashboard, Resume parser"
+                    />
+                  </div>
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
+                    <p className="text-xs text-gray-400 font-medium mb-1">Previous Companies</p>
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("previous_companies")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("previous_companies", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="Company A, Company B"
+                    />
+                  </div>
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Summary Tags</p>
-                    <KeywordPills values={cand.parsed_keywords?.summary_tags} accent="green" />
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("summary_tags")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("summary_tags", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="Python 4yr, Team Lead, B.Tech"
+                    />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Industries</p>
-                    <KeywordPills values={cand.parsed_keywords?.industries} />
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("industries")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("industries", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="SaaS, Hospitality, Retail"
+                    />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Certifications</p>
-                    <KeywordPills values={cand.parsed_keywords?.certifications} />
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("certifications")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("certifications", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="AWS Certified, PMP"
+                    />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">Languages</p>
-                    <KeywordPills values={cand.parsed_keywords?.languages} />
+                    <textarea
+                      rows={2}
+                      value={keywordArrayText("languages")}
+                      disabled={!canEdit}
+                      onChange={e => setKeywordArray("languages", e.target.value)}
+                      className={keywordTextareaClass}
+                      placeholder="English, Hindi"
+                    />
                   </div>
                 </div>
               </div>

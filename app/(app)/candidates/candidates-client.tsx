@@ -1,13 +1,31 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import type { Candidate, DatePeriod, Master, Profile } from "@/lib/types";
+import type { Candidate, DatePeriod, Master, ParsedKeywords, Profile, SavedSkillView, SkillCriteria } from "@/lib/types";
 import DetailPanel from "@/components/candidate-detail-panel";
 import AddCandidateModal from "@/components/add-candidate-modal";
+import SkillSearchModal from "@/components/skill-search-modal";
 import toast from "react-hot-toast";
-import { X, Upload, Link as LinkIcon, ExternalLink, Trash2 } from "lucide-react";
+import { Check, X, Upload, Link as LinkIcon, ExternalLink, Trash2 } from "lucide-react";
+
+const EMPTY_CRITERIA: SkillCriteria = {
+  skills: "",
+  tools: "",
+  min_years_experience: "",
+  education: "",
+  college: "",
+  current_role: "",
+  previous_companies: "",
+  projects: "",
+  industries: "",
+  certifications: "",
+  languages: "",
+  summary_tags: "",
+};
 
 type View = "sheet" | "ats" | "kanban";
+type SkillSuggestionMap = Partial<Record<keyof SkillCriteria, string[]>>;
+
 interface Props {
   profile: Profile;
   sites: Master[];
@@ -227,6 +245,161 @@ function getDateRangeForPeriod(period: DatePeriod) {
   return { from: "", to: "" };
 }
 
+function hasSkillCriteria(criteria: SkillCriteria) {
+  return Object.values(criteria).some(value => value.trim() !== "");
+}
+
+function parseCriteriaList(value: string) {
+  return value.split(",").map(term => term.trim().toLowerCase()).filter(Boolean);
+}
+
+function addSuggestion(target: Set<string>, value: unknown) {
+  if (Array.isArray(value)) {
+    value.forEach(item => addSuggestion(target, item));
+    return;
+  }
+  if (typeof value !== "string" && typeof value !== "number") return;
+  String(value)
+    .split(",")
+    .map(item => item.trim().replace(/\s+/g, " "))
+    .filter(item => item.length >= 2)
+    .forEach(item => target.add(item));
+}
+
+function sortedSuggestions(values: Set<string>) {
+  return Array.from(values)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+    .slice(0, 250);
+}
+
+function criteriaToSearchString(criteria: SkillCriteria) {
+  const parts = [
+    criteria.skills,
+    criteria.tools,
+    criteria.education,
+    criteria.college,
+    criteria.current_role,
+    criteria.previous_companies,
+    criteria.projects,
+    criteria.industries,
+    criteria.certifications,
+    criteria.languages,
+    criteria.summary_tags,
+    criteria.min_years_experience.trim() ? `${criteria.min_years_experience.trim()} years` : "",
+  ];
+  return parts
+    .flatMap(part => part.split(","))
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildCriteriaSummary(criteria: SkillCriteria) {
+  const parts = [
+    ...parseCriteriaList(criteria.skills).slice(0, 2),
+    ...parseCriteriaList(criteria.tools).slice(0, 2),
+    criteria.current_role.trim(),
+    criteria.min_years_experience.trim() ? `${criteria.min_years_experience.trim()}+ yrs` : "",
+  ].filter(Boolean);
+  return parts.slice(0, 4).join(" · ");
+}
+
+function criteriaEqual(a: SkillCriteria, b: SkillCriteria) {
+  return (Object.keys(EMPTY_CRITERIA) as (keyof SkillCriteria)[])
+    .every(key => a[key].trim() === b[key].trim());
+}
+
+function matchScore(candidateVals: string[], searchTerms: string[], weight: number): number {
+  if (!searchTerms.length || !candidateVals.length) return 0;
+  const vals = candidateVals.map(value => value.toLowerCase()).filter(Boolean);
+  let score = 0;
+  for (const term of searchTerms) {
+    if (vals.includes(term)) score += weight * 2;
+    else if (vals.some(value => value.includes(term) || term.includes(value))) score += weight;
+  }
+  return score;
+}
+
+function scoreCandidate(c: Candidate, criteria: SkillCriteria): number {
+  if (!hasSkillCriteria(criteria)) return 0;
+  const kw = (c.parsed_keywords ?? {}) as ParsedKeywords;
+  const minYrs = criteria.min_years_experience ? Number(criteria.min_years_experience) : null;
+  const hasMinYears = minYrs !== null && Number.isFinite(minYrs);
+
+  if (hasMinYears) {
+    const candidateYrs = Number(kw.years_experience ?? c.kw_years_experience ?? 0);
+    if (!candidateYrs || candidateYrs < minYrs) return 0;
+  }
+
+  const skills = parseCriteriaList(criteria.skills);
+  const tools = parseCriteriaList(criteria.tools);
+  const summaryTags = parseCriteriaList(criteria.summary_tags);
+  const projects = parseCriteriaList(criteria.projects);
+  const industries = parseCriteriaList(criteria.industries);
+  const certifications = parseCriteriaList(criteria.certifications);
+  const languages = parseCriteriaList(criteria.languages);
+  const previousCompanies = parseCriteriaList(criteria.previous_companies);
+  const currentRole = criteria.current_role.trim().toLowerCase();
+  const education = criteria.education.trim().toLowerCase();
+  const college = criteria.college.trim().toLowerCase();
+
+  const maxPossible =
+    (skills.length ? 30 * 2 : 0) +
+    (tools.length ? 20 * 2 : 0) +
+    (currentRole ? 12 * 2 : 0) +
+    (summaryTags.length ? 10 * 2 : 0) +
+    (projects.length ? 8 * 2 : 0) +
+    (industries.length ? 8 * 2 : 0) +
+    (certifications.length ? 6 * 2 : 0) +
+    (languages.length ? 4 * 2 : 0) +
+    (education ? 2 * 2 : 0) +
+    (college ? 2 * 2 : 0) +
+    (previousCompanies.length ? 2 * 2 : 0) +
+    (hasMinYears ? 10 : 0);
+
+  if (maxPossible === 0) return 0;
+
+  let raw = 0;
+  if (hasMinYears) raw += 10;
+  raw += matchScore(kw.skills ?? [], skills, 30);
+  raw += matchScore(kw.tools ?? [], tools, 20);
+  raw += matchScore(kw.summary_tags ?? [], summaryTags, 10);
+  raw += matchScore(kw.projects ?? [], projects, 8);
+  raw += matchScore(kw.industries ?? [], industries, 8);
+  raw += matchScore(kw.certifications ?? [], certifications, 6);
+  raw += matchScore(kw.languages ?? [], languages, 4);
+  raw += matchScore(kw.previous_companies ?? [], previousCompanies, 2);
+
+  const candidateRole = [kw.current_role, c.current_designation].filter(Boolean).join(" ").toLowerCase();
+  if (currentRole && candidateRole.includes(currentRole)) raw += 12 * 2;
+  const candidateEdu = (kw.education ?? "").toLowerCase();
+  if (education && candidateEdu.includes(education)) raw += 2 * 2;
+  const candidateCollege = (kw.college ?? "").toLowerCase();
+  if (college && candidateCollege.includes(college)) raw += 2 * 2;
+
+  return Math.min(100, Math.round((raw / maxPossible) * 100));
+}
+
+function AiScoreBadge({ score }: { score: number }) {
+  if (score <= 0) {
+    return (
+      <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-400">
+        —
+      </span>
+    );
+  }
+  const color = score >= 80
+    ? "bg-green-100 text-green-700 border-green-200"
+    : score >= 50
+      ? "bg-amber-100 text-amber-700 border-amber-200"
+      : "bg-red-100 text-red-700 border-red-200";
+  return (
+    <span className={`inline-flex min-w-8 items-center justify-center rounded-full border px-2 py-0.5 text-xs font-bold ${color}`}>
+      {score}
+    </span>
+  );
+}
+
 export default function CandidatesClient({
   profile, sites, designations, sources, statuses, recruiters, interviewers,
   initialStatus = "", initialHrId = "", initialCandidateId = "",
@@ -236,7 +409,11 @@ export default function CandidatesClient({
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState("");
-  const [kwSearch, setKwSearch]     = useState("");
+  const [skillCriteria, setSkillCriteria] = useState<SkillCriteria>(EMPTY_CRITERIA);
+  const [draftSkillCriteria, setDraftSkillCriteria] = useState<SkillCriteria>(EMPTY_CRITERIA);
+  const [showSkillModal, setShowSkillModal] = useState(false);
+  const [savedViews, setSavedViews] = useState<SavedSkillView[]>([]);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [hrFilter, setHrFilter]         = useState(initialHrId);
   const [siteFilter, setSiteFilter]     = useState("");
   const [statusFilter, setStatusFilter] = useState(initialStatus);
@@ -297,6 +474,65 @@ export default function CandidatesClient({
     interviewer:        interviewers,
   };
 
+  const skillActive = hasSkillCriteria(skillCriteria);
+  const skillSearchSummary = buildCriteriaSummary(skillCriteria);
+
+  const skillSuggestions = useMemo<SkillSuggestionMap>(() => {
+    const buckets: Record<keyof SkillCriteria, Set<string>> = {
+      skills: new Set(),
+      tools: new Set(),
+      min_years_experience: new Set(),
+      education: new Set(),
+      college: new Set(),
+      current_role: new Set(),
+      previous_companies: new Set(),
+      projects: new Set(),
+      industries: new Set(),
+      certifications: new Set(),
+      languages: new Set(),
+      summary_tags: new Set(),
+    };
+
+    candidates.forEach(candidate => {
+      const kw = candidate.parsed_keywords ?? {};
+      addSuggestion(buckets.skills, kw.skills);
+      addSuggestion(buckets.skills, candidate.kw_skills);
+      addSuggestion(buckets.tools, kw.tools);
+      addSuggestion(buckets.education, kw.education);
+      addSuggestion(buckets.college, kw.college);
+      addSuggestion(buckets.current_role, kw.current_role);
+      addSuggestion(buckets.current_role, candidate.current_designation);
+      addSuggestion(buckets.previous_companies, kw.previous_companies);
+      addSuggestion(buckets.previous_companies, candidate.kw_previous_companies);
+      addSuggestion(buckets.projects, kw.projects);
+      addSuggestion(buckets.projects, candidate.kw_projects);
+      addSuggestion(buckets.industries, kw.industries);
+      addSuggestion(buckets.certifications, kw.certifications);
+      addSuggestion(buckets.languages, kw.languages);
+      addSuggestion(buckets.summary_tags, kw.summary_tags);
+      addSuggestion(buckets.summary_tags, candidate.kw_summary_tags);
+    });
+
+    designations.forEach(designation => {
+      addSuggestion(buckets.current_role, designation.name);
+      addSuggestion(buckets.summary_tags, designation.name);
+    });
+
+    return {
+      skills: sortedSuggestions(buckets.skills),
+      tools: sortedSuggestions(buckets.tools),
+      education: sortedSuggestions(buckets.education),
+      college: sortedSuggestions(buckets.college),
+      current_role: sortedSuggestions(buckets.current_role),
+      previous_companies: sortedSuggestions(buckets.previous_companies),
+      projects: sortedSuggestions(buckets.projects),
+      industries: sortedSuggestions(buckets.industries),
+      certifications: sortedSuggestions(buckets.certifications),
+      languages: sortedSuggestions(buckets.languages),
+      summary_tags: sortedSuggestions(buckets.summary_tags),
+    };
+  }, [candidates, designations]);
+
   // ── Fetch ────────────────────────────────────────────────────────────────
   const fetchCandidates = useCallback(async () => {
     setLoading(true);
@@ -310,7 +546,8 @@ export default function CandidatesClient({
       if (statusFilter) p.set("status",         statusFilter);
       if (designFilter) p.set("designation_id", designFilter);
       if (search)       p.set("search",         search);
-      if (kwSearch.trim()) p.set("kw_search",   kwSearch.trim());
+      const skillSearch = criteriaToSearchString(skillCriteria);
+      if (skillSearch)  p.set("kw_search",      skillSearch);
       if (derivedRange.from) p.set("date_from", derivedRange.from);
       if (derivedRange.to) p.set("date_to", derivedRange.to);
       const res  = await fetch(`/api/candidates?${p}`);
@@ -320,9 +557,18 @@ export default function CandidatesClient({
     } finally {
       setLoading(false);
     }
-  }, [hrFilter, siteFilter, statusFilter, designFilter, search, kwSearch, period, dateFrom, dateTo]);
+  }, [hrFilter, siteFilter, statusFilter, designFilter, search, skillCriteria, period, dateFrom, dateTo]);
 
   useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
+
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("ats_saved_skill_views") ?? "[]");
+      setSavedViews(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setSavedViews([]);
+    }
+  }, []);
 
   // Load saved kanban column order / config from localStorage
   useEffect(() => {
@@ -357,8 +603,15 @@ export default function CandidatesClient({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [openColFilter]);
 
+  const scoredCandidates = useMemo(() => {
+    if (!skillActive) return candidates;
+    return [...candidates]
+      .map(c => ({ ...c, _liveScore: scoreCandidate(c, skillCriteria) }))
+      .sort((a, b) => (b._liveScore ?? 0) - (a._liveScore ?? 0));
+  }, [candidates, skillActive, skillCriteria]);
+
   const visibleCandidates = useMemo(() => {
-    let result = candidates;
+    let result = scoredCandidates;
     Object.entries(colFilters).forEach(([colKey, filterVal]) => {
       if (!filterVal) return;
       const col = SHEET_COLS.find(sc => sc.key === colKey);
@@ -368,7 +621,7 @@ export default function CandidatesClient({
       });
     });
     return result;
-  }, [candidates, colFilters]);
+  }, [scoredCandidates, colFilters]);
 
   function handlePeriodChange(val: string) {
     const nextPeriod = val as DatePeriod;
@@ -384,6 +637,64 @@ export default function CandidatesClient({
   function applyCustomDateRange() {
     setDateFrom(customDateFrom);
     setDateTo(customDateTo);
+  }
+
+  function openSkillModal() {
+    setDraftSkillCriteria(skillCriteria);
+    setShowSkillModal(true);
+  }
+
+  function closeSkillModal() {
+    setDraftSkillCriteria(skillCriteria);
+    setActiveViewId(savedViews.find(view => criteriaEqual(view.criteria, skillCriteria))?.id ?? null);
+    setShowSkillModal(false);
+  }
+
+  function applySkillCriteria(criteria: SkillCriteria) {
+    setSkillCriteria(criteria);
+    setDraftSkillCriteria(criteria);
+    setActiveViewId(savedViews.find(view => criteriaEqual(view.criteria, criteria))?.id ?? null);
+    setShowSkillModal(false);
+  }
+
+  function clearSkillCriteria() {
+    setSkillCriteria(EMPTY_CRITERIA);
+    setDraftSkillCriteria(EMPTY_CRITERIA);
+    setActiveViewId(null);
+  }
+
+  function persistSavedViews(nextViews: SavedSkillView[]) {
+    setSavedViews(nextViews);
+    localStorage.setItem("ats_saved_skill_views", JSON.stringify(nextViews));
+  }
+
+  function saveSkillView(name: string, criteria: SkillCriteria) {
+    if (!name.trim()) return;
+    if (!hasSkillCriteria(criteria)) {
+      toast.error("Add search criteria before saving");
+      return;
+    }
+    const view: SavedSkillView = {
+      id: crypto.randomUUID(),
+      name: name.trim().slice(0, 40),
+      criteria,
+      created_at: new Date().toISOString(),
+    };
+    persistSavedViews([...savedViews, view]);
+    toast.success("View saved");
+  }
+
+  function applySavedView(viewToApply: SavedSkillView) {
+    setSkillCriteria(viewToApply.criteria);
+    setDraftSkillCriteria(viewToApply.criteria);
+    setActiveViewId(viewToApply.id);
+    setShowSkillModal(false);
+  }
+
+  function deleteSavedView(viewId: string) {
+    if (!window.confirm("Delete this saved view?")) return;
+    persistSavedViews(savedViews.filter(view => view.id !== viewId));
+    if (activeViewId === viewId) setActiveViewId(null);
   }
 
   // ── Permission ───────────────────────────────────────────────────────────
@@ -542,10 +853,10 @@ export default function CandidatesClient({
       if (cand && col && !col.readOnly && canEdit(cand)) commitEdit(cand.id, col.key, "");
       return;
     }
-    // Printable char → start editing (skip name/readOnly/dropdown)
+    // Printable char -> start editing (skip readOnly/dropdown)
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const cand = visibleCandidates[ri]; const col = SHEET_COLS[ci];
-      if (cand && col && !col.readOnly && col.type !== "dropdown" && col.key !== "name")
+      if (cand && col && !col.readOnly && col.type !== "dropdown")
         startEdit(cand.id, col.key, e.key);
     }
   }
@@ -741,6 +1052,45 @@ export default function CandidatesClient({
 
       {/* ── Filter Bar ── */}
       <div className="bg-white border-b border-gray-100 px-6 py-2 flex flex-wrap gap-2 items-center flex-shrink-0">
+        {savedViews.length > 0 && (
+          <div className="w-full overflow-x-auto pb-1">
+            <div className="flex min-w-0 items-center gap-2">
+              {savedViews.map(viewItem => {
+                const active = activeViewId === viewItem.id || criteriaEqual(skillCriteria, viewItem.criteria);
+                return (
+                  <span
+                    key={viewItem.id}
+                    className={[
+                      "flex items-center gap-1 rounded-full border border-brand-200 px-2.5 py-1 text-xs text-brand-700",
+                      active ? "bg-brand-100 font-semibold" : "bg-brand-50",
+                    ].join(" ")}
+                  >
+                    {active && <Check size={11} />}
+                    <button
+                      type="button"
+                      onClick={() => applySavedView(viewItem)}
+                      className="max-w-44 truncate"
+                      title={viewItem.name}
+                    >
+                      {viewItem.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteSavedView(viewItem.id);
+                      }}
+                      className="text-brand-500 hover:text-brand-800"
+                      aria-label={`Delete ${viewItem.name}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {/* Search */}
         <div className="relative">
           <input value={search} onChange={e => setSearch(e.target.value)}
@@ -752,15 +1102,24 @@ export default function CandidatesClient({
           </svg>
         </div>
         <div className="relative">
-          <input value={kwSearch} onChange={e => setKwSearch(e.target.value)}
+          <input
+            readOnly
+            value={skillSearchSummary}
+            onClick={openSkillModal}
+            onFocus={openSkillModal}
             placeholder='Skill Search: "Python 4 years"'
-            className="text-xs border border-gray-200 rounded-lg pl-7 pr-7 py-1.5 w-60 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none" />
+            className="text-xs border border-gray-200 rounded-lg pl-7 pr-7 py-1.5 w-60 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none cursor-pointer bg-white" />
           <svg className="absolute left-2 top-2.5" width="12" height="12" fill="none" stroke="#9ca3af" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          {kwSearch && (
-            <button onClick={() => setKwSearch("")}
+          {skillActive && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                clearSkillCriteria();
+              }}
               className="absolute right-2 top-2 text-gray-400 hover:text-gray-700">
               <X size={12} />
             </button>
@@ -825,14 +1184,14 @@ export default function CandidatesClient({
           <option value="">All Designations</option>
           {designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
-        {(hrFilter || siteFilter || statusFilter || designFilter || search || kwSearch || period !== "all" || dateFrom || dateTo || customDateFrom || customDateTo) && (
+        {(hrFilter || siteFilter || statusFilter || designFilter || search || skillActive || period !== "all" || dateFrom || dateTo || customDateFrom || customDateTo) && (
           <button onClick={() => {
             setHrFilter("");
             setSiteFilter("");
             setStatusFilter("");
             setDesignFilter("");
             setSearch("");
-            setKwSearch("");
+            clearSkillCriteria();
             setPeriod("all");
             setDateFrom("");
             setDateTo("");
@@ -978,13 +1337,14 @@ export default function CandidatesClient({
                               )
                             ) : (
                               <div className={[
-                                `px-2 py-1.5 text-xs leading-snug ${isNameCol ? "" : "truncate"}`,
-                                isNameCol   ? "text-brand-600 font-semibold cursor-pointer hover:underline" : "",
+                                "px-2 py-1.5 text-xs leading-snug truncate",
+                                isNameCol ? "font-semibold text-gray-900 cursor-pointer" : "",
                                 isReadOnly  ? "text-gray-400" : "",
-                                !editable && !isReadOnly ? "text-gray-400" : "text-gray-800",
+                                !editable && !isReadOnly && !isNameCol ? "text-gray-400" : "text-gray-800",
                               ].join(" ")}>
-                                {isNameCol && <KeywordTags tags={getKeywordTags(cand)} />}
-                                {col.key === "final_status" && rawVal
+                                {col.key === "ai_score" && skillActive
+                                  ? <AiScoreBadge score={cand._liveScore ?? 0} />
+                                  : col.key === "final_status" && rawVal
                                   ? <span className={`px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${STATUS_COLORS[rawVal] ?? "bg-gray-100 text-gray-600"}`}>{rawVal}</span>
                                   : (col.key === "naukri_link" || col.key === "naukri_profile_url") && rawVal
                                     ? <a href={rawVal} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-blue-500 hover:underline">🔗 Link</a>
@@ -1065,7 +1425,7 @@ export default function CandidatesClient({
                                 }
                                 if (e.key === "Escape") setNewRowActive(null);
                               }}
-                              placeholder={col.key === "name" ? "Type name to add…" : ""}
+                              placeholder=""
                               className="w-full border-0 outline-none bg-white text-xs px-2 py-1.5 block"
                               style={{ minWidth: col.width }}
                               min={col.type === "number" ? "0" : undefined}
@@ -1075,9 +1435,7 @@ export default function CandidatesClient({
                           <div className="px-2 py-1.5 text-xs truncate">
                             {val
                               ? <span className="text-gray-700">{col.key === "month" ? fmtMonth(val) : val}</span>
-                              : col.key === "name"
-                                ? <span className="text-brand-300 italic">Click to add name…</span>
-                                : <span className="text-gray-200">—</span>}
+                              : <span className="text-gray-200">—</span>}
                           </div>
                         )}
                       </td>
@@ -1121,7 +1479,11 @@ export default function CandidatesClient({
                         <p className="text-xs text-gray-400 truncate">{cand.designation_name ?? cand.current_designation}</p>
                         <KeywordTags tags={getKeywordTags(cand)} />
                       </div>
-                      {cand.ai_score != null && (
+                      {skillActive ? (
+                        <div className="ml-2 flex-shrink-0">
+                          <AiScoreBadge score={cand._liveScore ?? 0} />
+                        </div>
+                      ) : cand.ai_score != null && (
                         <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold flex-shrink-0 ml-2 ${cand.ai_score >= 80 ? "border-green-500 text-green-700" : cand.ai_score >= 60 ? "border-yellow-500 text-yellow-700" : "border-red-400 text-red-600"}`}>
                           {cand.ai_score}
                         </div>
@@ -1330,6 +1692,20 @@ export default function CandidatesClient({
           onClose={() => setPanelId(null)} onUpdated={fetchCandidates}
         />
       )}
+
+      <SkillSearchModal
+        open={showSkillModal}
+        onClose={closeSkillModal}
+        criteria={draftSkillCriteria}
+        onChange={(criteria) => {
+          setDraftSkillCriteria(criteria);
+          setActiveViewId(savedViews.find(viewItem => criteriaEqual(viewItem.criteria, criteria))?.id ?? null);
+        }}
+        onApply={applySkillCriteria}
+        savedViews={savedViews}
+        onSaveView={saveSkillView}
+        suggestions={skillSuggestions}
+      />
 
       {/* ── CV Upload / Link Modal ── */}
       {cvModal && (

@@ -20,6 +20,9 @@ out/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+dev-server*.log
+({tag
+.claude/
 
 # Vercel
 .vercel

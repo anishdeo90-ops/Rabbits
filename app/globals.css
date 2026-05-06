@@ -2,10 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* AG Grid theme override */
-@import "ag-grid-community/styles/ag-grid.css";
-@import "ag-grid-community/styles/ag-theme-alpine.css";
-
 :root {
   --ag-header-background-color: #FF2D87;
   --ag-header-foreground-color: #ffffff;

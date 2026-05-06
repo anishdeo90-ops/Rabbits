@@ -20,7 +20,10 @@ const KEYWORD_FIELDS = [
   "skills",
   "years_experience",
   "education",
+  "college",
   "current_role",
+  "previous_companies",
+  "projects",
   "industries",
   "tools",
   "certifications",
@@ -35,6 +38,47 @@ function pickFields<T extends readonly string[]>(source: Record<string, unknown>
     if (value !== undefined && value !== null && value !== "") safe[field] = value;
   }
   return safe;
+}
+
+function normalizeYearsExperience(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  if (typeof value === "string") {
+    const match = value.match(/\d+/);
+    if (match) return Math.max(0, parseInt(match[0], 10));
+  }
+  return undefined;
+}
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  const values = value
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+  return values.length > 0 ? Array.from(new Set(values)) : undefined;
+}
+
+function normalizeKeywords(keywords: Record<string, unknown>) {
+  const normalized = { ...keywords };
+  const years = normalizeYearsExperience(normalized.years_experience);
+  if (years === undefined) delete normalized.years_experience;
+  else normalized.years_experience = years;
+
+  for (const field of [
+    "skills",
+    "previous_companies",
+    "projects",
+    "industries",
+    "tools",
+    "certifications",
+    "languages",
+    "summary_tags",
+  ]) {
+    const values = normalizeStringArray(normalized[field]);
+    if (values === undefined) delete normalized[field];
+    else normalized[field] = values;
+  }
+
+  return normalized;
 }
 
 export async function POST(req: NextRequest) {
@@ -97,7 +141,10 @@ export async function POST(req: NextRequest) {
     "skills": ["Python", "React", "SQL"],
     "years_experience": 4,
     "education": "B.Tech Computer Science",
+    "college": "ABC Institute of Technology",
     "current_role": "Senior Software Engineer",
+    "previous_companies": ["Acme Technologies", "Northwind Labs"],
+    "projects": ["Resume ranking engine", "Recruitment dashboard"],
     "industries": ["FinTech", "SaaS"],
     "tools": ["Docker", "AWS", "Git"],
     "certifications": ["AWS Solutions Architect"],
@@ -111,6 +158,9 @@ Rules:
 - Salary must be annual in rupees (integer)
 - notice_period_days: convert months to days (1 month = 30 days)
 - years_experience = total professional experience in years (integer)
+- college: college/university/institute name if present
+- previous_companies: prior employers from work history, deduplicated
+- projects: notable resume projects or portfolio projects, short names only
 - summary_tags: concise human-readable labels, include "{skill} {N}yr" where applicable
 - skills: programming languages, frameworks, methodologies (title-cased, deduplicated)
 - tools: platforms, cloud services, software (title-cased, deduplicated)
@@ -139,7 +189,7 @@ Rules:
 
     const parsed = JSON.parse(jsonMatch[0]) as { profile?: Record<string, unknown>; keywords?: Record<string, unknown> };
     const safeProfile = pickFields(parsed.profile ?? parsed as Record<string, unknown>, PROFILE_FIELDS);
-    const safeKeywords = pickFields(parsed.keywords ?? {}, KEYWORD_FIELDS);
+    const safeKeywords = normalizeKeywords(pickFields(parsed.keywords ?? {}, KEYWORD_FIELDS));
 
     let jobFit: Record<string, unknown> | null = null;
     if (jobId) {

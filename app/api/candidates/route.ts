@@ -2,6 +2,122 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { findDuplicateCandidatesByMobile } from "@/lib/candidate-duplicates";
 
+const WRITABLE_CANDIDATE_FIELDS = new Set([
+  "hr_id",
+  "month",
+  "application_date",
+  "naukri_link",
+  "naukri_profile_url",
+  "name",
+  "current_designation",
+  "designation_id",
+  "site_id",
+  "mobile",
+  "email",
+  "suitable_other_position",
+  "current_location",
+  "source_id",
+  "present_salary",
+  "expected_salary",
+  "offered_salary",
+  "notice_period_days",
+  "google_form_sent",
+  "google_form_received",
+  "processed_by_hr",
+  "shortlist_by_hr",
+  "tel_int_date",
+  "tel_int_remarks",
+  "hr_manager_remarks",
+  "remarks_before_pi",
+  "mgmt_remarks_before_pi",
+  "shortlisted_for_pi",
+  "pi1_date",
+  "pi1_taken_by",
+  "pi1_remarks",
+  "pi2_date",
+  "pi2_taken_by",
+  "pi2_remarks",
+  "pi3_date",
+  "pi3_taken_by",
+  "pi3_remarks",
+  "gf_issued",
+  "shortlisted_by_mgmt",
+  "gf_issue_date",
+  "gf_received_date",
+  "gf_verified",
+  "gf_verification_report",
+  "addr_verification_shared",
+  "addr_verification_received",
+  "remarks",
+  "final_status",
+  "final_action",
+  "file_no",
+  "doj",
+  "doj_potential",
+  "doj_actual",
+  "hard_copy",
+  "staffingo_emp_id",
+  "ai_score",
+  "ai_summary",
+  "cv_drive_url",
+  "cv_filename",
+  "job_id",
+  "custom_data",
+  "parsed_keywords",
+]);
+
+function pickWritableCandidateFields(input: Record<string, unknown>) {
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (WRITABLE_CANDIDATE_FIELDS.has(key)) output[key] = value;
+  }
+  return output;
+}
+
+function textValue(value: unknown) {
+  if (value == null) return "";
+  return String(value).toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").trim();
+}
+
+function arrayValue(value: unknown) {
+  return Array.isArray(value) ? value.map(textValue).filter(Boolean) : [];
+}
+
+function fieldScore(values: string[], tokens: string[], phrase: string, weight: number) {
+  const joined = values.join(" ");
+  if (!joined) return 0;
+
+  let score = phrase && joined.includes(phrase) ? weight * 2 : 0;
+  for (const token of tokens) {
+    if (!token) continue;
+    if (values.some((value) => value === token)) score += weight * 2;
+    else if (values.some((value) => value.includes(token))) score += weight;
+  }
+  return score;
+}
+
+function scoreKeywordMatch(row: Record<string, unknown>, tokens: string[], phrase: string, minYears: number | null) {
+  const keywords = (row.parsed_keywords ?? {}) as Record<string, unknown>;
+  const fields = [
+    { weight: 30, values: arrayValue(keywords.skills) },
+    { weight: 24, values: arrayValue(keywords.tools) },
+    { weight: 18, values: [textValue(keywords.current_role), textValue(row.current_designation), textValue(row.designation_name)].filter(Boolean) },
+    { weight: 16, values: arrayValue(keywords.summary_tags) },
+    { weight: 12, values: arrayValue(keywords.projects) },
+    { weight: 10, values: arrayValue(keywords.industries) },
+    { weight: 10, values: arrayValue(keywords.certifications) },
+    { weight: 8, values: arrayValue(keywords.languages) },
+    { weight: 6, values: [textValue(keywords.education), textValue(keywords.college), ...arrayValue(keywords.previous_companies)].filter(Boolean) },
+  ];
+
+  let score = fields.reduce((total, field) => total + fieldScore(field.values, tokens, phrase, field.weight), 0);
+  const years = Number(row.kw_years_experience ?? keywords.years_experience ?? 0);
+  if (minYears !== null && Number.isFinite(years)) {
+    score += years >= minYears ? 25 + Math.min(years - minYears, 10) : -1000;
+  }
+  return score;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -61,20 +177,23 @@ export async function GET(req: NextRequest) {
   if (dateTo) query = query.lte("application_date", dateTo);
 
   let kwTokens: string[] = [];
+  let kwPhrase = "";
+  let kwMinYears: number | null = null;
   if (kwSearch) {
     const yearMatch = kwSearch.match(/(\d+)\s*\+?\s*(?:year|yr)/i);
-    const minYears = yearMatch ? parseInt(yearMatch[1], 10) : null;
+    kwMinYears = yearMatch ? parseInt(yearMatch[1], 10) : null;
     const skillPart = kwSearch
       .replace(/\d+\s*\+?\s*(?:year|yr)s?/gi, "")
       .replace(/\bin\b/gi, "")
       .trim();
+    kwPhrase = textValue(skillPart);
     kwTokens = skillPart
       .split(/[\s,]+/)
-      .map((s) => s.toLowerCase())
+      .map(textValue)
       .filter((s) => s.length > 1);
 
-    if (minYears !== null) {
-      query = query.gte("kw_years_experience", minYears);
+    if (kwMinYears !== null) {
+      query = query.gte("kw_years_experience", kwMinYears);
     }
   }
 
@@ -88,21 +207,39 @@ export async function GET(req: NextRequest) {
   let rows = data ?? [];
 
   if (kwTokens.length > 0) {
-    rows = rows.filter((row) => {
+    rows = rows
+      .map((row) => {
+        const record = row as Record<string, unknown>;
+        return {
+          ...record,
+          kw_match_score: scoreKeywordMatch(record, kwTokens, kwPhrase, kwMinYears),
+        };
+      })
+      .filter((row) => {
       const record = row as Record<string, unknown>;
       const keywords = (record.parsed_keywords ?? {}) as Record<string, unknown>;
       const haystack = [
         keywords.current_role,
         keywords.education,
+        keywords.college,
+        record.current_designation,
+        record.designation_name,
         ...(Array.isArray(keywords.skills) ? keywords.skills : []),
+        ...(Array.isArray(keywords.previous_companies) ? keywords.previous_companies : []),
+        ...(Array.isArray(keywords.projects) ? keywords.projects : []),
         ...(Array.isArray(keywords.tools) ? keywords.tools : []),
         ...(Array.isArray(keywords.industries) ? keywords.industries : []),
         ...(Array.isArray(keywords.certifications) ? keywords.certifications : []),
         ...(Array.isArray(keywords.languages) ? keywords.languages : []),
         ...(Array.isArray(keywords.summary_tags) ? keywords.summary_tags : []),
-      ].map((value) => String(value).toLowerCase()).join(" ");
-      return kwTokens.every((token) => haystack.includes(token));
-    });
+      ].map(textValue).join(" ");
+      return Number(record.kw_match_score) > 0 && kwTokens.every((token) => haystack.includes(token));
+      })
+      .sort((a, b) => {
+        const scoreDiff = Number(b.kw_match_score ?? 0) - Number(a.kw_match_score ?? 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        return Number((b as Record<string, unknown>).sr_no ?? 0) - Number((a as Record<string, unknown>).sr_no ?? 0);
+      });
   }
 
   if (piBy) {
@@ -122,11 +259,12 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json();
+  const body = await req.json() as Record<string, unknown>;
 
-  if (body.mobile) {
+  const mobile = typeof body.mobile === "string" ? body.mobile.trim() : "";
+  if (mobile) {
     const admin = await createAdminClient();
-    const matches = await findDuplicateCandidatesByMobile(admin, body.mobile, 5);
+    const matches = await findDuplicateCandidatesByMobile(admin, mobile, 5);
     if (matches.length > 0) {
       return NextResponse.json({
         error: `Duplicate mobile number - candidate "${matches[0].name}" already exists with this mobile.`,
@@ -139,7 +277,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("candidates")
-    .insert({ ...body, created_by: user.id, hr_id: body.hr_id ?? user.id })
+    .insert({ ...pickWritableCandidateFields(body), created_by: user.id, hr_id: body.hr_id ?? user.id })
     .select()
     .single();
 

@@ -2,6 +2,78 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { enqueueStageChangeTriggers } from "@/lib/automation/triggers";
 
+const WRITABLE_CANDIDATE_FIELDS = new Set([
+  "hr_id",
+  "month",
+  "application_date",
+  "naukri_link",
+  "naukri_profile_url",
+  "name",
+  "current_designation",
+  "designation_id",
+  "site_id",
+  "mobile",
+  "email",
+  "suitable_other_position",
+  "current_location",
+  "source_id",
+  "present_salary",
+  "expected_salary",
+  "offered_salary",
+  "notice_period_days",
+  "google_form_sent",
+  "google_form_received",
+  "processed_by_hr",
+  "shortlist_by_hr",
+  "tel_int_date",
+  "tel_int_remarks",
+  "hr_manager_remarks",
+  "remarks_before_pi",
+  "mgmt_remarks_before_pi",
+  "shortlisted_for_pi",
+  "pi1_date",
+  "pi1_taken_by",
+  "pi1_remarks",
+  "pi2_date",
+  "pi2_taken_by",
+  "pi2_remarks",
+  "pi3_date",
+  "pi3_taken_by",
+  "pi3_remarks",
+  "gf_issued",
+  "shortlisted_by_mgmt",
+  "gf_issue_date",
+  "gf_received_date",
+  "gf_verified",
+  "gf_verification_report",
+  "addr_verification_shared",
+  "addr_verification_received",
+  "remarks",
+  "final_status",
+  "final_action",
+  "file_no",
+  "doj",
+  "doj_potential",
+  "doj_actual",
+  "hard_copy",
+  "staffingo_emp_id",
+  "ai_score",
+  "ai_summary",
+  "cv_drive_url",
+  "cv_filename",
+  "job_id",
+  "custom_data",
+  "parsed_keywords",
+]);
+
+function pickWritableCandidateFields(input: Record<string, unknown>) {
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (WRITABLE_CANDIDATE_FIELDS.has(key)) output[key] = value;
+  }
+  return output;
+}
+
 // GET single candidate (full detail with co-sourcers)
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -52,28 +124,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "You can only edit your own candidates" }, { status: 403 });
   }
 
-  const body = await req.json();
-
-  // Always blocked for everyone: is_deleted, deleted_at, deleted_by
-  ["is_deleted", "deleted_at", "deleted_by"].forEach(f => delete body[f]);
-
-  // Strip view-computed / read-only fields (never writable to candidates table)
-  const readOnly = ["hr_name","site_name","designation_name","source_name","co_sourcer_names",
-                    "sr_no","tel_int_done","gf_sent","gf_received","shortlisted_hr","pi_done",
-                    "pi2_done","pi3_done","shortlisted_mgmt","gf_issued_flag","gf_recv","appointed",
-                    "joined","offered_not_joined"];
-  readOnly.forEach(f => delete body[f]);
+  const body = await req.json() as Record<string, unknown>;
+  const payload = pickWritableCandidateFields(body);
 
   const { data, error } = await supabase
     .from("candidates")
-    .update({ ...body, updated_by: user.id })
+    .update({ ...payload, updated_by: user.id })
     .eq("id", id)
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (body.final_status && body.final_status !== previousCandidate?.final_status) {
-    await enqueueStageChangeTriggers(id, body.final_status, previousCandidate);
+  if (typeof payload.final_status === "string" && payload.final_status !== previousCandidate?.final_status) {
+    await enqueueStageChangeTriggers(id, payload.final_status, previousCandidate);
   }
   return NextResponse.json({ data });
 }

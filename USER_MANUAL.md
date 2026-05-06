@@ -14,6 +14,52 @@ Every time a change is made to the codebase, update this file before finishing:
 
 Keep entries short and factual. Newest entries go at the top of each section.
 
+### FRONTEND CHANGE WARNING - READ BEFORE EDITING UI
+
+These rules prevent the site from breaking into raw HTML or distorted table columns:
+
+1. **Do not add CSS `@import` inside `app/globals.css`.**
+   - Third-party global CSS must be imported in `app/layout.tsx` before `./globals.css`.
+   - Example: AG Grid CSS belongs in `app/layout.tsx`, not inside `globals.css`.
+   - If this rule is broken, Next can serve an empty/broken CSS file and the whole app will look unstyled.
+
+2. **Do not move `import "./globals.css"` out of `app/layout.tsx`.**
+   - This is the global Tailwind entrypoint for the whole site.
+   - Removing it or changing its order can break every page.
+
+3. **Do not add badges, helper text, or nested content inside the Candidates sheet `Name` cell.**
+   - The `Name` column must display only the candidate name in bold.
+   - Clicking the candidate name may open the candidate detail panel.
+   - Extra UI belongs in detail panels, cards, or separate columns, not inside the name cell.
+
+4. **After any frontend change, run:**
+```bash
+npm run build
+```
+   - The build runs `scripts/check-css-import-order.mjs`.
+   - Do not finish a frontend change if this command fails.
+
+5. **If the site looks blank, raw, or CSS is missing, check the active port and dev cache before editing code.**
+   - Confirm you are opening the HireRabbits dev server, not another app already using `localhost:3000`.
+   - If port `3000` is occupied, Next may run HireRabbits on `localhost:3001` or another nearby port.
+   - Check the page title: HireRabbits should show `<title>HireRabbits</title>`.
+   - Check the CSS endpoint from the loaded HTML, for example `/_next/static/css/app/layout.css`; it must return `200` and nonzero content.
+   - If the page says `missing required error components, refreshing...`, the real root cause is usually: an old Next dev server is still running while `.next` was deleted or rebuilt underneath it. The old process still points at generated files that no longer exist.
+   - If the HTML points to `/_next/static/css/app/layout.css?...` but that URL returns `404`, `500`, or an empty response, `.next` is stale/broken.
+   - Do **not** delete `.next` while Next is still running. Always stop the process on the active port first, then delete `.next`, then restart dev.
+   - Safe local recovery on Windows for the active port, usually `3001` on this machine:
+```powershell
+netstat -ano | findstr :3001
+Stop-Process -Id <PID> -Force
+Remove-Item -Recurse -Force .next
+npm.cmd run dev -- -p 3001
+```
+   - Use port `3000` instead of `3001` if that is the active HireRabbits dev server port.
+   - If `npm.cmd run dev -- -p 3001` fails with `EADDRINUSE`, another process is still holding the port; repeat `netstat -ano | findstr :3001` and stop that PID before restarting.
+   - If `next dev` fails with `spawn EPERM` inside an agent/sandbox, rerun the dev-server start with elevated permission instead of assuming the app code is broken.
+   - If you see stale chunk errors such as `Cannot find module './7787.js'`, use the same `.next` recovery flow.
+   - This is a Next generated-cache/dev-server issue unless `app/globals.css` contains `@import` or `app/layout.tsx` import order was changed.
+
 ---
 
 ## 1. First-Time Setup
@@ -87,6 +133,62 @@ Connect repo → add the 3 env vars in Vercel Settings → deploy.
 - **Bulk import**: Upload Excel/CSV → map columns → preview → import
 - **Detail panel**: full profile, Skills tab, interview timeline, files, offer letter, CTC breakdown, notes, co-sourcing
 - **AI resume parser**: CV parsing stores `parsed_keywords` with skills, tools, experience, education, industries, certifications, languages, and summary tags
+
+#### Candidates Resume Keyword Status
+
+So far, for the **Candidates tab / resume keyword search**, this is already done:
+
+1. **Database support exists**
+   - Migration added: `supabase/migrations/20260506120000_resume_keywords.sql`
+   - Adds `candidates.parsed_keywords jsonb`
+   - Adds GIN indexes for keyword search
+   - Adds `candidate_job_scores` table for job-candidate fit scoring
+
+2. **Resume parsing API exists**
+   - File: `app/api/parse-resume/route.ts`
+   - It sends the uploaded CV/resume to an LLM.
+   - It extracts structured fields like:
+     - `skills`
+     - `tools`
+     - `years_experience`
+     - `education`
+     - `industries`
+     - `certifications`
+     - `languages`
+     - `summary_tags`
+   - It saves the result into `candidates.parsed_keywords`.
+
+3. **Candidate detail panel has a Skills tab**
+   - File: `components/candidate-detail-panel.tsx`
+   - There is a `Skills` tab.
+   - It displays parsed resume keywords.
+   - It has a "Re-parse CV" / AI resume parser flow.
+
+4. **Candidate list shows keyword tags**
+   - File: `app/(app)/candidates/candidates-client.tsx`
+   - Candidate rows can show keyword badges from `parsed_keywords.summary_tags`.
+
+5. **CV upload can trigger resume parsing**
+   - In the candidates client, after CV upload, it calls `/api/parse-resume`.
+   - If parsing succeeds, it updates that candidate's `parsed_keywords` in local state.
+
+6. **Candidate search API supports ranked keyword search**
+   - File: `app/api/candidates/route.ts`
+   - It already reads `parsed_keywords`.
+   - Search checks skills/tools/industries/certifications/languages/summary tags.
+   - It scores candidates whose keywords include the search text and sorts strongest resume matches first.
+
+7. **Job ranking exists separately**
+   - File: `app/api/jobs/[id]/ranked-candidates/route.ts`
+   - File: `app/(app)/jobs/page.tsx`
+   - There is a ranked candidates modal under Jobs.
+   - It orders candidates by `fit_score` descending.
+
+What is **still not fully done yet**:
+
+- Automatic parsing when a CV is added seems present for upload flows, but there is no confirmed database trigger/background job that parses every new CV row automatically after insert.
+
+Conclusion: the foundation is already there: `parsed_keywords`, LLM parsing, Skills tab, keyword badges, and best-fit keyword search. The Candidates tab now scores and sorts skill searches such as `Python` or `Python 4 years` by strongest match instead of only filtering.
 
 ### Jobs (`/jobs`)
 - Tabs: **Open · On Hold · Closed · Filled**
@@ -244,6 +346,18 @@ ats.live/
 > Newest first.
 
 <!-- CHANGE LOG START -->
+- [2026-05-07] Documented real root cause for `missing required error components` blank page and safe `.next` recovery order | —
+- [2026-05-07] Fixed Advanced Skill Search focus jumping and added suggestion-only criteria entry | Verify suggestion coverage with real parsed CV data
+- [2026-05-07] Documented safe recovery for stale `.next` dev-cache CSS 404s on `layout.css` | —
+- [2026-05-07] Added advanced Candidates skill search modal, live AI fit score badges, score-based sorting, and local saved search views | Verify saved views and scoring against real parsed CV data
+- [2026-05-07] Added site-break warning for stale `.next` cache, CSS endpoint 500s, and wrong localhost port checks | —
+- [2026-05-07] Fixed Candidate detail panel fetch crash and added Candidates tab best-fit skill search ranking | Verify real Supabase data returns expected ranked order
+- [2026-05-07] Restored click-to-open behavior on Candidates sheet Name cell while keeping name-only bold display | —
+- [2026-05-07] Restored Candidates sheet Name column to plain editable name-only cell and documented frontend no-break rules | —
+- [2026-05-06] Added CSS import-order guard to prevent the site-breaker stylesheet regression | —
+- [2026-05-06] Hardened candidate routes against schema/parser drift | Run `supabase/migrations/20260506133000_harden_candidate_keyword_view.sql` on existing Supabase projects
+- [2026-05-06] Site breaker bug fixed: AG Grid CSS moved out of `globals.css` and imported from root layout before app CSS | Verify authenticated table pages visually after login
+- [2026-05-06] Added full Candidates tab resume keyword status breakdown: completed database/parser/UI/search pieces and pending best-fit ranking gap | Implement candidate-tab keyword scoring and sort by strongest match
 - [2026-05-06] Resume keyword intelligence added with parsed keyword storage, skill search, candidate keyword badges, and job ranked-candidate view | Run `supabase/migrations/20260506120000_resume_keywords.sql`
 - [2026-05-06] Fixed candidate page break/404 compatibility issue | Verify candidate detail links with real candidate IDs after login
 - [2026-05-06] Automation load now reports missing DB migration clearly; setup docs call out the Automation migration | Run `supabase/migrations/20260506090000_followup_automation.sql` on any existing Supabase project missing Automation tables
@@ -260,6 +374,15 @@ ats.live/
 > Newest first.
 
 <!-- BUG LOG START -->
+- [2026-05-07] **Bug:** Local dev page could go blank with `missing required error components, refreshing...` after `.next` was removed while the old Next server still held port `3001` | **Fix:** Documented the root cause and required stop-process, delete `.next`, restart-on-active-port order | **File(s):** `USER_MANUAL.md`
+- [2026-05-07] **Bug:** Advanced Skill Search modal jumped focus back to the Skills field while editing other fields and allowed typo-prone free-text criteria | **Fix:** Limited autofocus to modal open, added suggestion chips from parsed CV data, and blocked applying or saving pending unselected typed suggestions | **File(s):** `components/skill-search-modal.tsx`, `app/(app)/candidates/candidates-client.tsx`, `USER_MANUAL.md`
+- [2026-05-07] **Bug:** Local dev could render unstyled when generated `.next` cache pointed HTML to missing `/_next/static/css/app/layout.css` | **Fix:** Documented diagnosis and safe `.next` cache recovery without editing source CSS | **File(s):** `USER_MANUAL.md`
+- [2026-05-07] **Bug:** Candidates skill search could not capture structured criteria or show live per-row fit scores in the AI Score column | **Fix:** Added structured criteria modal, deterministic browser scoring, score badges, sorting, and saved local views | **File(s):** `app/(app)/candidates/candidates-client.tsx`, `components/skill-search-modal.tsx`, `lib/types.ts`, `USER_MANUAL.md`
+- [2026-05-07] **Bug:** Candidate detail panel could crash the frontend with `TypeError: Failed to fetch` when candidate/detail side fetches failed | **Fix:** Wrapped panel fetches in guarded error handling and rendered a retryable error state | **File(s):** `components/candidate-detail-panel.tsx`, `USER_MANUAL.md`
+- [2026-05-07] **Bug:** Candidate detail panel no longer opened from the Candidates sheet Name cell after simplifying the column | **Fix:** Restored click-to-open on the Name cell only, with bold name-only display and no nested badges/helper content | **File(s):** `app/(app)/candidates/candidates-client.tsx`, `USER_MANUAL.md`
+- [2026-05-07] **Bug:** Candidates sheet Name column was overloaded with keyword badges/link styling instead of showing only the candidate name | **Fix:** Removed special Name-cell content/styling and restored normal editable text-cell behavior | **File(s):** `app/(app)/candidates/candidates-client.tsx`, `USER_MANUAL.md`
+- [2026-05-06] **Bug:** Candidates site could break after schema/parser changes because `v_pipeline_funnel` exposed computed keyword fields and cast AI JSON directly to integer; future computed fields could also be written back to `candidates` by mistake | **Fix:** Candidate create/update APIs now allowlist real writable columns only, resume parser normalizes keyword arrays/years, and the keyword view safely casts `years_experience` | **File(s):** `app/api/candidates/route.ts`, `app/api/candidates/[id]/route.ts`, `app/api/parse-resume/route.ts`, `supabase/migrations/20260506120000_resume_keywords.sql`, `supabase/migrations/20260506133000_harden_candidate_keyword_view.sql`
+- [2026-05-06] **Bug:** Site breaker bug - CSS could break because `app/globals.css` used CSS-level AG Grid `@import`; when the dev CSS endpoint failed, the browser received an empty stylesheet and the app rendered as raw HTML | **Fix:** Moved AG Grid CSS imports to `app/layout.tsx` before `./globals.css`, removed `@import` from `app/globals.css`, and added `predev`/`prebuild` guard so CSS-level imports cannot re-enter `globals.css` | **File(s):** `app/layout.tsx`, `app/globals.css`, `scripts/check-css-import-order.mjs`, `package.json`, `USER_MANUAL.md`
 - [2026-05-06] **Bug:** Candidate page could break or show 404 when using `/candidate`, `/candidate/:id`, `/candidates/:id`, or redirected candidate links after login | **Fix:** Added compatibility redirects, preserved `next` through login, and made invalid candidate IDs show a recoverable panel message | **File(s):** `middleware.ts`, `app/login/page.tsx`, `app/(app)/candidates/page.tsx`, `app/(app)/candidates/candidates-client.tsx`, `components/candidate-detail-panel.tsx`, `app/api/candidates/[id]/route.ts`, candidate compatibility route files
 <!-- BUG LOG END -->
 
@@ -270,7 +393,21 @@ ats.live/
 > Log significant milestones here: new features, breaking changes, schema updates, new integrations.
 > Each entry gets its own sub-header. Newest first.
 
+### [2026-05-07] - Advanced Candidate Skill Search Views
+- Candidates tab skill search now opens a structured criteria modal over parsed resume keyword fields
+- Active searches compute live 0-100 AI fit scores in the sheet AI Score column and sort candidates by fit
+- Search criteria can be saved locally and reapplied from quick chips above the filter bar
+
+### [2026-05-07] - Candidate Skill Search Ranking
+- Candidates tab skill search now assigns a keyword match score and sorts strongest resume matches first
+- Candidate detail panel network/API failures now show a controlled retryable panel instead of a frontend crash
+
 ### [2026-05-06] — Initial Release
+### [2026-05-06] - Candidate Route Hardening
+- New migration: `supabase/migrations/20260506133000_harden_candidate_keyword_view.sql`
+- Candidate APIs now ignore view-computed fields and only write real `candidates` columns
+- Resume keyword `years_experience` is normalized before save and safely cast in `v_pipeline_funnel`
+
 ### [2026-05-06] - Follow-up Automation Module
 - New module: `/automation` (Admin + HR Manager only)
 - 6 new tables: `message_templates`, `automation_rules`, `candidate_followups`, `communication_logs`, `automation_runs`, `automation_settings`

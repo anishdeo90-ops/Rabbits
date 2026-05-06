@@ -42,12 +42,37 @@ export interface ParsedKeywords {
   skills?: string[];
   years_experience?: number;
   education?: string;
+  college?: string;
   current_role?: string;
+  previous_companies?: string[];
+  projects?: string[];
   industries?: string[];
   tools?: string[];
   certifications?: string[];
   languages?: string[];
   summary_tags?: string[];
+}
+
+export interface SkillCriteria {
+  skills: string;
+  tools: string;
+  min_years_experience: string;
+  education: string;
+  college: string;
+  current_role: string;
+  previous_companies: string;
+  projects: string;
+  industries: string;
+  certifications: string;
+  languages: string;
+  summary_tags: string;
+}
+
+export interface SavedSkillView {
+  id: string;
+  name: string;
+  criteria: SkillCriteria;
+  created_at: string;
 }
 
 export interface CandidateJobScore {
@@ -134,8 +159,12 @@ export interface Candidate {
   ai_summary?: string;
   parsed_keywords?: ParsedKeywords;
   kw_years_experience?: number;
+  kw_college?: string;
   kw_skills?: string[];
+  kw_projects?: string[];
+  kw_previous_companies?: string[];
   kw_summary_tags?: string[];
+  _liveScore?: number;
   // CV
   cv_drive_url?: string;
   cv_filename?: string;
