@@ -346,6 +346,7 @@ ats.live/
 > Newest first.
 
 <!-- CHANGE LOG START -->
+- [2026-05-07] Applied and repaired Supabase migration history for Automation, resume keywords, and hardened candidate keyword view | —
 - [2026-05-07] Documented real root cause for `missing required error components` blank page and safe `.next` recovery order | —
 - [2026-05-07] Fixed Advanced Skill Search focus jumping and added suggestion-only criteria entry | Verify suggestion coverage with real parsed CV data
 - [2026-05-07] Documented safe recovery for stale `.next` dev-cache CSS 404s on `layout.css` | —
@@ -374,6 +375,7 @@ ats.live/
 > Newest first.
 
 <!-- BUG LOG START -->
+- [2026-05-07] **Bug:** Harden candidate keyword view migration failed on existing Supabase because it reordered appended view columns | **Fix:** Preserved the existing `v_pipeline_funnel` keyword column order, applied the corrected view, and repaired remote migration history | **File(s):** `supabase/migrations/20260506133000_harden_candidate_keyword_view.sql`, `USER_MANUAL.md`
 - [2026-05-07] **Bug:** Local dev page could go blank with `missing required error components, refreshing...` after `.next` was removed while the old Next server still held port `3001` | **Fix:** Documented the root cause and required stop-process, delete `.next`, restart-on-active-port order | **File(s):** `USER_MANUAL.md`
 - [2026-05-07] **Bug:** Advanced Skill Search modal jumped focus back to the Skills field while editing other fields and allowed typo-prone free-text criteria | **Fix:** Limited autofocus to modal open, added suggestion chips from parsed CV data, and blocked applying or saving pending unselected typed suggestions | **File(s):** `components/skill-search-modal.tsx`, `app/(app)/candidates/candidates-client.tsx`, `USER_MANUAL.md`
 - [2026-05-07] **Bug:** Local dev could render unstyled when generated `.next` cache pointed HTML to missing `/_next/static/css/app/layout.css` | **Fix:** Documented diagnosis and safe `.next` cache recovery without editing source CSS | **File(s):** `USER_MANUAL.md`

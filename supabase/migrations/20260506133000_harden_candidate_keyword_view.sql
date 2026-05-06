@@ -100,11 +100,11 @@ select
       then (c.parsed_keywords->>'years_experience')::integer
     else null
   end as kw_years_experience,
-  c.parsed_keywords->>'college' as kw_college,
   c.parsed_keywords->'skills' as kw_skills,
+  c.parsed_keywords->'summary_tags' as kw_summary_tags,
+  c.parsed_keywords->>'college' as kw_college,
   c.parsed_keywords->'projects' as kw_projects,
-  c.parsed_keywords->'previous_companies' as kw_previous_companies,
-  c.parsed_keywords->'summary_tags' as kw_summary_tags
+  c.parsed_keywords->'previous_companies' as kw_previous_companies
 from candidates c
 left join profiles p on p.id = c.hr_id
 left join masters ms on ms.id = c.site_id
