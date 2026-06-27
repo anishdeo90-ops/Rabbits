@@ -1,30 +1,67 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import type { Candidate, DatePeriod, Master, ParsedKeywords, Profile, SavedSkillView, SkillCriteria } from "@/lib/types";
+import { useRouter } from "next/navigation";
+import type { Candidate, Master, Profile } from "@/lib/types";
 import DetailPanel from "@/components/candidate-detail-panel";
 import AddCandidateModal from "@/components/add-candidate-modal";
-import SkillSearchModal from "@/components/skill-search-modal";
 import toast from "react-hot-toast";
-import { Check, X, Upload, Link as LinkIcon, ExternalLink, Trash2 } from "lucide-react";
+import { X, Upload, Link as LinkIcon, ExternalLink, Trash2 } from "lucide-react";
 
-const EMPTY_CRITERIA: SkillCriteria = {
-  skills: "",
-  tools: "",
-  min_years_experience: "",
-  education: "",
-  college: "",
-  current_role: "",
-  previous_companies: "",
-  projects: "",
-  industries: "",
-  certifications: "",
-  languages: "",
-  summary_tags: "",
-};
+// ── Searchable combobox (used for filter dropdowns) ─────────────────────────
+function SearchCombobox({ options, value, onChange, placeholder, className = "" }: {
+  options: { id: string; name: string }[];
+  value: string;
+  onChange: (id: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [input, setInput] = useState("");
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (!value) setInput(""); }, [value]);
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+  const selected = options.find(o => o.id === value) ?? null;
+  const filtered = input.trim() ? options.filter(o => o.name.toLowerCase().includes(input.toLowerCase())) : options;
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      <div className="relative flex items-center">
+        <input
+          type="text"
+          value={selected ? selected.name : input}
+          onChange={e => { if (selected) onChange(""); setInput(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className={`w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none${value ? " pr-6" : ""}`}
+        />
+        {value && (
+          <button onClick={() => { onChange(""); setInput(""); setOpen(false); }}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-xs leading-none">✕</button>
+        )}
+      </div>
+      {open && filtered.length > 0 && (
+        <div className="absolute top-full left-0 mt-1 min-w-full w-max max-w-xs bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-52 overflow-y-auto">
+          {filtered.map(o => (
+            <button key={o.id} onClick={() => { onChange(o.id); setInput(""); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-brand-50 whitespace-nowrap block ${o.id === value ? "bg-brand-50 text-brand-600 font-medium" : "text-gray-700"}`}>
+              {o.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 type View = "sheet" | "ats" | "kanban";
-type SkillSuggestionMap = Partial<Record<keyof SkillCriteria, string[]>>;
+type OwnerFilter = "all" | "mine" | "live" | "offered" | "joined";
+type SortDir = "asc" | "desc";
 
 interface Props {
   profile: Profile;
@@ -36,7 +73,14 @@ interface Props {
   interviewers: Master[];
   initialStatus?: string;
   initialHrId?: string;
-  initialCandidateId?: string;
+  initialDesignationId?: string;
+  initialJobId?: string;
+  initialOwner?: OwnerFilter;
+  initialSiteId?: string;
+  initialDateFrom?: string;
+  initialDateTo?: string;
+  initialPipelineStage?: string;
+  initialForwardToId?: string;
 }
 
 // ── Sheet columns ────────────────────────────────────────────────────────────
@@ -46,73 +90,86 @@ const SHEET_COLS: {
   dropdownKey?: string;
   readOnly?: boolean;
 }[] = [
-  { key: "hr_name",                    label: "HR",                   width: 110, readOnly: true },
-  { key: "month",                      label: "Month",                width: 110, type: "dropdown", dropdownKey: "month" },
-  { key: "application_date",           label: "App. Date",            width: 105, type: "date" },
-  { key: "final_status",               label: "Status",               width: 175, type: "dropdown", dropdownKey: "status" },
-  { key: "name",                       label: "Name",                 width: 160 },
-  { key: "current_designation",        label: "Cur. Designation",     width: 145 },
-  { key: "designation_name",           label: "Designation For",      width: 165, type: "dropdown", dropdownKey: "designation" },
-  { key: "site_name",                  label: "Site",                 width: 140, type: "dropdown", dropdownKey: "site" },
-  { key: "mobile",                     label: "Mobile",               width: 120 },
-  { key: "email",                      label: "Email",                width: 170 },
-  { key: "naukri_profile_url",         label: "Profile Link",         width: 150, type: "url" },
-  { key: "suitable_other_position",    label: "Suitable Other Post",  width: 145, type: "dropdown", dropdownKey: "designationOrOther" },
-  { key: "current_location",           label: "Location",             width: 115 },
-  { key: "source_name",                label: "Source",               width: 105, type: "dropdown", dropdownKey: "source" },
-  { key: "present_salary",             label: "Cur. CTC",             width: 90,  type: "number" },
-  { key: "expected_salary",            label: "Exp. CTC",             width: 90,  type: "number" },
-  { key: "notice_period_days",         label: "Notice (days)",        width: 85,  type: "number" },
-  { key: "ai_score",                   label: "AI Score",             width: 70,  readOnly: true },
-  { key: "google_form_sent",           label: "GF Sent",              width: 80,  type: "dropdown", dropdownKey: "yesNoNA" },
-  { key: "google_form_received",       label: "GF Recd",              width: 80,  type: "dropdown", dropdownKey: "yesNoNA" },
-  { key: "processed_by_hr",            label: "Processed by HR",      width: 110, type: "dropdown", dropdownKey: "yesNoNA" },
-  { key: "shortlist_by_hr",            label: "Shortlist HR",         width: 95,  type: "dropdown", dropdownKey: "yesNoNA" },
-  { key: "tel_int_date",               label: "Tel Int Date",         width: 105, type: "date" },
-  { key: "tel_int_remarks",            label: "Tel Remarks",          width: 135 },
-  { key: "hr_manager_remarks",         label: "HR Mgr Remarks",       width: 145 },
-  { key: "mgmt_remarks_before_pi",     label: "Mgmt Remarks",         width: 145 },
-  { key: "remarks_before_pi",          label: "HOD Comments",         width: 145 },
-  { key: "shortlisted_for_pi",         label: "Shortlisted PI",       width: 95,  type: "dropdown", dropdownKey: "yesNo" },
-  { key: "pi1_date",                   label: "PI 1 Date",            width: 105, type: "date" },
-  { key: "pi1_taken_by",               label: "PI 1 By",              width: 160, type: "dropdown", dropdownKey: "interviewer" },
-  { key: "pi1_remarks",                label: "PI 1 Remarks",         width: 135 },
-  { key: "pi2_date",                   label: "PI 2 Date",            width: 105, type: "date" },
-  { key: "pi2_taken_by",               label: "PI 2 By",              width: 160, type: "dropdown", dropdownKey: "interviewer" },
-  { key: "pi2_remarks",                label: "PI 2 Remarks",         width: 135 },
-  { key: "pi3_date",                   label: "PI 3 Date",            width: 105, type: "date" },
-  { key: "pi3_taken_by",               label: "PI 3 By",              width: 160, type: "dropdown", dropdownKey: "interviewer" },
-  { key: "pi3_remarks",                label: "PI 3 Remarks",         width: 135 },
-  { key: "gf_issued",                  label: "GF Issued",            width: 80,  type: "dropdown", dropdownKey: "yesNo" },
-  { key: "shortlisted_by_mgmt",        label: "Shortlist Mgmt",       width: 105, type: "dropdown", dropdownKey: "yesNoNA" },
-  { key: "gf_issue_date",              label: "GF Issue Date",        width: 105, type: "date" },
-  { key: "gf_received_date",           label: "GF Recd Date",         width: 105, type: "date" },
-  { key: "gf_verified",                label: "GF Verified",          width: 90,  type: "dropdown", dropdownKey: "yesNoNA" },
-  { key: "gf_verification_report",     label: "GF Verification",      width: 140 },
-  { key: "addr_verification_shared",   label: "Addr Verif. Shared",   width: 130, type: "date" },
-  { key: "addr_verification_received", label: "Addr Verif. Recd",     width: 130, type: "date" },
-  { key: "remarks",                    label: "Remarks",              width: 145 },
-  { key: "final_action",               label: "Final Action",         width: 160 },
-  { key: "file_no",                    label: "File No",              width: 90 },
-  { key: "hard_copy",                  label: "Hard Copy",            width: 80,  type: "dropdown", dropdownKey: "yesNo" },
-  { key: "doj_actual",                 label: "DOJ",                  width: 110, type: "date" },
+  { key: "hr_name",                    label: "HR NAME",                                       width: 120, readOnly: true },
+  { key: "month",                      label: "MONTH",                                         width: 110, type: "dropdown", dropdownKey: "month" },
+  { key: "application_date",           label: "App. Date",                                     width: 105, type: "date" },
+  { key: "final_status",               label: "FINAL STATUS",                                  width: 195, type: "dropdown", dropdownKey: "status" },
+  { key: "name",                       label: "NAME OF APPLICANT",                             width: 180 },
+  { key: "current_designation",        label: "CURRENT DESIGNATION",                           width: 170 },
+  { key: "designation_name",           label: "DESIGNATION (Recruited For)",                   width: 190, type: "dropdown", dropdownKey: "designation" },
+  { key: "site_name",                  label: "CONTRACT REQUIRED FOR",                         width: 175, type: "dropdown", dropdownKey: "site" },
+  { key: "mobile",                     label: "MOBILE NO",                                     width: 125 },
+  { key: "email",                      label: "EMAIL ID",                                      width: 185 },
+  { key: "suitable_other_position",    label: "SUITABLE FOR OTHER POSITION",                   width: 185, type: "dropdown", dropdownKey: "yesNo" },
+  { key: "current_location",           label: "CANDIDATE CURRENT LOCATION",                    width: 185 },
+  { key: "source_name",                label: "SOURCE",                                        width: 115, type: "dropdown", dropdownKey: "source" },
+  { key: "present_salary",             label: "PRESENT SALARY",                                width: 120, type: "number" },
+  { key: "expected_salary",            label: "EXPECTED SALARY",                               width: 120, type: "number" },
+  { key: "google_form_sent",           label: "GOOGLE FORMS SENT",                             width: 145, type: "dropdown", dropdownKey: "yesNoNA" },
+  { key: "google_form_received",       label: "GOOGLE FORM RECEIVED",                          width: 155, type: "dropdown", dropdownKey: "yesNoNA" },
+  { key: "processed_by_hr",            label: "PROCESSED BY HR",                               width: 140, type: "dropdown", dropdownKey: "yesNoNA" },
+  { key: "shortlist_by_hr",            label: "SHORTLIST BY HR",                               width: 130, type: "dropdown", dropdownKey: "yesNoNA" },
+  { key: "tel_int_date",               label: "TEL INT DATE",                                  width: 115, type: "date" },
+  { key: "tel_int_remarks",            label: "TELEPHONIC INT REMARKS(Recruiter)",              width: 225 },
+  { key: "hr_manager_remarks",         label: "HR MANAGER REMARKS",                            width: 175 },
+  { key: "mgmt_remarks_before_pi",     label: "MGMT REMARKS BEFORE PI",                        width: 185 },
+  { key: "remarks_before_pi",          label: "Tele Int by HOD Name & Comments",               width: 215 },
+  { key: "shortlisted_for_pi",         label: "Shortlisted For Personal Interview",             width: 220, type: "dropdown", dropdownKey: "yesNo" },
+  { key: "pi1_date",                   label: "PI 1 Date",                                     width: 105, type: "date" },
+  { key: "pi1_taken_by",               label: "PI 1 Taken By",                                 width: 170, type: "dropdown", dropdownKey: "interviewer" },
+  { key: "pi1_remarks",                label: "PI 1 Remarks",                                  width: 145 },
+  { key: "pi2_date",                   label: "PI 2 Date",                                     width: 105, type: "date" },
+  { key: "pi2_taken_by",               label: "PI 2 Taken By",                                 width: 170, type: "dropdown", dropdownKey: "interviewer" },
+  { key: "pi2_remarks",                label: "PI 2 Remarks",                                  width: 145 },
+  { key: "shortlisted_by_mgmt",        label: "Management Final Decision",                     width: 185, type: "dropdown", dropdownKey: "mgmtDecision" },
+  { key: "gf_issue_date",              label: "Gaurantee Form ISSUE DATE",                     width: 180, type: "date" },
+  { key: "gf_received_date",           label: "Gautantee Form RECEIVED DATE",                  width: 195, type: "date" },
+  { key: "gf_verification_report",     label: "GF VERIFICATION REPORT",                        width: 185 },
+  { key: "addr_verification_shared",   label: "DATE OF ADDRESS VERIFICATION LETTER SHARED",    width: 270, type: "date" },
+  { key: "addr_verification_received", label: "DATE OF ADDRESS VERIFICATION LETTER RECEIVED",  width: 280, type: "date" },
+  { key: "remarks",                    label: "Remarks",                                       width: 155 },
+  { key: "naukri_profile_url",         label: "LINK",                                          width: 120, type: "url" },
+  { key: "final_action",               label: "Final Action",                                  width: 160 },
+  { key: "file_no",                    label: "FILE NO",                                       width: 95 },
+  { key: "doj_actual",                 label: "DOJ",                                           width: 110, type: "date" },
+  { key: "hard_copy",                  label: "HARD COPY Y/N",                                 width: 110, type: "dropdown", dropdownKey: "yesNo" },
+  { key: "referred_by",                label: "REFERRED BY",                                   width: 145 },
+  { key: "ai_score",                   label: "AI Score",                                      width: 75,  readOnly: true },
 ];
 
-// Kanban core view — key outcome stages only (mirrors the dashboard funnel)
-const KANBAN_CORE_KEYS = new Set([
-  "Sourced", "Tel Int Done", "Shortlisted by HR", "PI Done",
-  "Shortlisted by Mgmt", "GF Issued", "Appointed/Offered",
-  "Joined", "On Hold", "Rejected/Dropped",
+// Statuses that mean candidate pipeline is closed / dead
+const DEAD_STATUSES = new Set([
+  "Rejected", "Not Interested", "Joined & Left",
+  "Did Not Attend Interview", "Dropped By Candidate",
 ]);
+
+// Kanban Pipeline view — 7 grouped columns (birds-eye)
+const PIPELINE_GROUPS = [
+  { name: "New Candidate", color: "#6b7280", defaultStatus: "Sourced",
+    statuses: new Set(["Sourced", "Applied", "Not Yet Processed"]) },
+  { name: "Screening",     color: "#3b82f6", defaultStatus: "Recruiter Screening Done",
+    statuses: new Set(["Recruiter Screening Done", "HR Manager Screening Done", "Dept Mgr Screening Done", "Mgmt Approved for PI Call"]) },
+  { name: "Interview",     color: "#8b5cf6", defaultStatus: "Called for PI",
+    statuses: new Set(["Called for PI", "PI 1 Done", "PI 2 Done"]) },
+  { name: "Shortlisted",   color: "#f59e0b", defaultStatus: "Shortlisted",
+    statuses: new Set(["GF Issued", "Shortlisted", "Shortlisted But Not Offered", "Hold", "Offered"]) },
+  { name: "Appointed",     color: "#10b981", defaultStatus: "Appointed",
+    statuses: new Set(["Appointed", "Joined", "Active Employee"]) },
+  { name: "Rejected",      color: "#ef4444", defaultStatus: "Rejected",
+    statuses: new Set(["Did Not Attend Interview", "Offered But Did Not Join", "Not Interested", "Rejected", "Joined & Left", "Dropped By Candidate"]) },
+  { name: "Other",         color: "#9ca3af", defaultStatus: "Other",
+    statuses: new Set(["Suitable for Future", "Other"]) },
+] as const;
+
 
 // ── Month helpers ────────────────────────────────────────────────────────────
 function buildMonthOpts() {
   const opts: { id: string; name: string }[] = [];
   const now = new Date();
-  for (let y = now.getFullYear() - 2; y <= now.getFullYear() + 1; y++) {
+  for (let y = now.getFullYear() - 2; y <= now.getFullYear(); y++) {
     for (let m = 1; m <= 12; m++) {
       const id    = `${y}-${String(m).padStart(2, "0")}`;
-      const label = new Date(y, m - 1, 1).toLocaleString("en-GB", { month: "long" }) + `-${String(y).slice(2)}`;
+      const label = new Date(y, m - 1, 1).toLocaleString("en-GB", { month: "long" }) + ` ${y}`;
       opts.push({ id, name: label });
     }
   }
@@ -122,323 +179,148 @@ const MONTH_OPTS = buildMonthOpts();
 const MONTH_LABEL_TO_ID: Record<string, string> = {};
 MONTH_OPTS.forEach(o => { MONTH_LABEL_TO_ID[o.name.toLowerCase()] = o.id; });
 
-function excelSerialToMonthId(raw: string): string | null {
-  if (!/^\d{5}$/.test(raw)) return null;
-  const serial = Number(raw);
-  if (!Number.isFinite(serial) || serial <= 0) return null;
-  const baseUtc = Date.UTC(1899, 11, 30);
-  const date = new Date(baseUtc + serial * 24 * 60 * 60 * 1000);
-  if (Number.isNaN(date.getTime())) return null;
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
 function fmtMonth(raw: string): string {
   if (!raw) return "";
-  const normalized = excelSerialToMonthId(raw) ?? raw;
-  if (/^\d{4}-\d{2}$/.test(normalized)) return MONTH_OPTS.find(o => o.id === normalized)?.name ?? normalized;
+  if (/^\d{4}-\d{2}$/.test(raw)) return MONTH_OPTS.find(o => o.id === raw)?.name ?? raw;
   return raw;
 }
 function normalizeMonthToId(raw: string): string {
   if (!raw) return "";
-  const serialMonth = excelSerialToMonthId(raw);
-  if (serialMonth) return serialMonth;
   if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+  // Excel serial stored as string
+  const num = Number(raw);
+  if (!isNaN(num) && Number.isInteger(num) && num > 40000 && num < 70000) {
+    const d = new Date((num - 25569) * 86400 * 1000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  }
+  // "MonthName YYYY", "MonthName-YY", or "MonthName YY"
+  const MNAMES = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+  const m = raw.match(/^([a-zA-Z]+)[\s\-](\d{2,4})$/);
+  if (m) {
+    const mIdx = MNAMES.indexOf(m[1].toLowerCase());
+    if (mIdx !== -1) {
+      let y = parseInt(m[2], 10);
+      if (y < 100) y += 2000;
+      return `${y}-${String(mIdx + 1).padStart(2, "0")}`;
+    }
+  }
   return MONTH_LABEL_TO_ID[raw.toLowerCase()] ?? raw;
 }
 
-// ── Status color map (covers both old and new status names) ─────────────────
+// ── Status color map ─────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
   "Sourced":                       "bg-gray-100 text-gray-600",
+  "Applied":                       "bg-slate-100 text-slate-600",
   "Recruiter Screening Done":      "bg-blue-100 text-blue-700",
   "HR Manager Screening Done":     "bg-cyan-100 text-cyan-700",
   "Dept Mgr Screening Done":       "bg-violet-100 text-violet-700",
   "Mgmt Approved for PI Call":     "bg-indigo-100 text-indigo-700",
   "Called for PI":                 "bg-purple-100 text-purple-700",
-  "Did not Attend Interview":      "bg-red-50 text-red-400",
-  "PI 1 done":                     "bg-indigo-100 text-indigo-700",
+  "Did Not Attend Interview":      "bg-red-50 text-red-400",
+  "PI 1 Done":                     "bg-indigo-100 text-indigo-700",
   "PI 2 Done":                     "bg-purple-100 text-purple-700",
-  "PI Done":                       "bg-indigo-100 text-indigo-700",
   "GF Issued":                     "bg-amber-100 text-amber-700",
   "Shortlisted":                   "bg-teal-100 text-teal-700",
+  "Shortlisted But Not Offered":   "bg-teal-50 text-teal-600",
   "Hold":                          "bg-yellow-100 text-yellow-700",
-  "On Hold":                       "bg-yellow-100 text-yellow-700",
   "Suitable for Future":           "bg-blue-50 text-blue-600",
-  "Offered but Not Joined":        "bg-red-50 text-red-600",
-  "Offered But Not Joined":        "bg-red-50 text-red-600",
+  "Offered But Did Not Join":      "bg-red-50 text-red-600",
   "Offered":                       "bg-brand-100 text-brand-700",
-  "Appointed":                     "bg-brand-100 text-brand-700",
-  "Appointed/Offered":             "bg-brand-100 text-brand-700",
   "Not Interested":                "bg-red-50 text-red-500",
   "Rejected":                      "bg-red-100 text-red-600",
-  "Rejected/Dropped":              "bg-red-100 text-red-600",
+  "Appointed":                     "bg-brand-200 text-brand-800",
   "Joined":                        "bg-green-100 text-green-700",
   "Joined & Left":                 "bg-gray-200 text-gray-500",
-  "Active Employee":               "bg-green-100 text-green-700",
-  // Legacy
-  "Tel Int Scheduled":             "bg-violet-50 text-violet-600",
-  "Tel Int Done":                  "bg-purple-100 text-purple-700",
-  "Google Form Sent":              "bg-emerald-50 text-emerald-600",
-  "Shortlisted by HR":             "bg-teal-100 text-teal-700",
-  "PI Scheduled":                  "bg-indigo-50 text-indigo-600",
-  "Shortlisted by Mgmt":           "bg-emerald-100 text-emerald-700",
-  "GF Received":                   "bg-amber-50 text-amber-600",
+  "Active Employee":               "bg-green-200 text-green-800",
+  "Not Yet Processed":             "bg-gray-50 text-gray-500",
+  "Other":                         "bg-gray-100 text-gray-500",
+  "Dropped By Candidate":          "bg-red-100 text-red-500",
 };
 
 const TODAY = new Date().toISOString().split("T")[0];
 
-function toIsoDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function normOpt(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function KeywordTags({ tags, max = 4 }: { tags?: string[]; max?: number }) {
-  if (!tags?.length) return null;
-  const visible = tags.slice(0, max);
-  const rest = tags.length - max;
-  return (
-    <div className="flex flex-wrap gap-1 mt-1">
-      {visible.map(tag => (
-        <span
-          key={tag}
-          className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-            /\d+yr/i.test(tag)
-              ? "bg-blue-50 text-blue-700 border border-blue-200"
-              : "bg-muted text-muted-foreground"
-          }`}
-        >
-          {tag}
-        </span>
-      ))}
-      {rest > 0 && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-          +{rest}
-        </span>
-      )}
-    </div>
-  );
+function optionListWithCurrent(
+  opts: { id: string; name: string; color?: string }[],
+  current: string,
+) {
+  const clean = current.trim();
+  if (!clean) return opts;
+  const exists = opts.some(opt => normOpt(opt.name) === normOpt(clean));
+  return exists ? opts : [{ id: clean, name: clean }, ...opts];
 }
 
-function getKeywordTags(candidate: Candidate) {
-  return candidate.parsed_keywords?.summary_tags ?? [];
-}
-
-function getDateRangeForPeriod(period: DatePeriod) {
-  const now = new Date();
-  if (period === "month") {
-    return {
-      from: toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1)),
-      to: toIsoDate(now),
-    };
-  }
-  if (period === "lastmonth") {
-    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const end = new Date(now.getFullYear(), now.getMonth(), 0);
-    return { from: toIsoDate(start), to: toIsoDate(end) };
-  }
-  if (period === "last30") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 29);
-    return { from: toIsoDate(start), to: toIsoDate(now) };
-  }
-  return { from: "", to: "" };
-}
-
-function hasSkillCriteria(criteria: SkillCriteria) {
-  return Object.values(criteria).some(value => value.trim() !== "");
-}
-
-function parseCriteriaList(value: string) {
-  return value.split(",").map(term => term.trim().toLowerCase()).filter(Boolean);
-}
-
-function addSuggestion(target: Set<string>, value: unknown) {
-  if (Array.isArray(value)) {
-    value.forEach(item => addSuggestion(target, item));
-    return;
-  }
-  if (typeof value !== "string" && typeof value !== "number") return;
-  String(value)
-    .split(",")
-    .map(item => item.trim().replace(/\s+/g, " "))
-    .filter(item => item.length >= 2)
-    .forEach(item => target.add(item));
-}
-
-function sortedSuggestions(values: Set<string>) {
-  return Array.from(values)
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
-    .slice(0, 250);
-}
-
-function criteriaToSearchString(criteria: SkillCriteria) {
-  const parts = [
-    criteria.skills,
-    criteria.tools,
-    criteria.education,
-    criteria.college,
-    criteria.current_role,
-    criteria.previous_companies,
-    criteria.projects,
-    criteria.industries,
-    criteria.certifications,
-    criteria.languages,
-    criteria.summary_tags,
-    criteria.min_years_experience.trim() ? `${criteria.min_years_experience.trim()} years` : "",
-  ];
-  return parts
-    .flatMap(part => part.split(","))
-    .map(part => part.trim())
-    .filter(Boolean)
-    .join(" ");
-}
-
-function buildCriteriaSummary(criteria: SkillCriteria) {
-  const parts = [
-    ...parseCriteriaList(criteria.skills).slice(0, 2),
-    ...parseCriteriaList(criteria.tools).slice(0, 2),
-    criteria.current_role.trim(),
-    criteria.min_years_experience.trim() ? `${criteria.min_years_experience.trim()}+ yrs` : "",
-  ].filter(Boolean);
-  return parts.slice(0, 4).join(" · ");
-}
-
-function criteriaEqual(a: SkillCriteria, b: SkillCriteria) {
-  return (Object.keys(EMPTY_CRITERIA) as (keyof SkillCriteria)[])
-    .every(key => a[key].trim() === b[key].trim());
-}
-
-function matchScore(candidateVals: string[], searchTerms: string[], weight: number): number {
-  if (!searchTerms.length || !candidateVals.length) return 0;
-  const vals = candidateVals.map(value => value.toLowerCase()).filter(Boolean);
-  let score = 0;
-  for (const term of searchTerms) {
-    if (vals.includes(term)) score += weight * 2;
-    else if (vals.some(value => value.includes(term) || term.includes(value))) score += weight;
-  }
-  return score;
-}
-
-function scoreCandidate(c: Candidate, criteria: SkillCriteria): number {
-  if (!hasSkillCriteria(criteria)) return 0;
-  const kw = (c.parsed_keywords ?? {}) as ParsedKeywords;
-  const minYrs = criteria.min_years_experience ? Number(criteria.min_years_experience) : null;
-  const hasMinYears = minYrs !== null && Number.isFinite(minYrs);
-
-  if (hasMinYears) {
-    const candidateYrs = Number(kw.years_experience ?? c.kw_years_experience ?? 0);
-    if (!candidateYrs || candidateYrs < minYrs) return 0;
-  }
-
-  const skills = parseCriteriaList(criteria.skills);
-  const tools = parseCriteriaList(criteria.tools);
-  const summaryTags = parseCriteriaList(criteria.summary_tags);
-  const projects = parseCriteriaList(criteria.projects);
-  const industries = parseCriteriaList(criteria.industries);
-  const certifications = parseCriteriaList(criteria.certifications);
-  const languages = parseCriteriaList(criteria.languages);
-  const previousCompanies = parseCriteriaList(criteria.previous_companies);
-  const currentRole = criteria.current_role.trim().toLowerCase();
-  const education = criteria.education.trim().toLowerCase();
-  const college = criteria.college.trim().toLowerCase();
-
-  const maxPossible =
-    (skills.length ? 30 * 2 : 0) +
-    (tools.length ? 20 * 2 : 0) +
-    (currentRole ? 12 * 2 : 0) +
-    (summaryTags.length ? 10 * 2 : 0) +
-    (projects.length ? 8 * 2 : 0) +
-    (industries.length ? 8 * 2 : 0) +
-    (certifications.length ? 6 * 2 : 0) +
-    (languages.length ? 4 * 2 : 0) +
-    (education ? 2 * 2 : 0) +
-    (college ? 2 * 2 : 0) +
-    (previousCompanies.length ? 2 * 2 : 0) +
-    (hasMinYears ? 10 : 0);
-
-  if (maxPossible === 0) return 0;
-
-  let raw = 0;
-  if (hasMinYears) raw += 10;
-  raw += matchScore(kw.skills ?? [], skills, 30);
-  raw += matchScore(kw.tools ?? [], tools, 20);
-  raw += matchScore(kw.summary_tags ?? [], summaryTags, 10);
-  raw += matchScore(kw.projects ?? [], projects, 8);
-  raw += matchScore(kw.industries ?? [], industries, 8);
-  raw += matchScore(kw.certifications ?? [], certifications, 6);
-  raw += matchScore(kw.languages ?? [], languages, 4);
-  raw += matchScore(kw.previous_companies ?? [], previousCompanies, 2);
-
-  const candidateRole = [kw.current_role, c.current_designation].filter(Boolean).join(" ").toLowerCase();
-  if (currentRole && candidateRole.includes(currentRole)) raw += 12 * 2;
-  const candidateEdu = (kw.education ?? "").toLowerCase();
-  if (education && candidateEdu.includes(education)) raw += 2 * 2;
-  const candidateCollege = (kw.college ?? "").toLowerCase();
-  if (college && candidateCollege.includes(college)) raw += 2 * 2;
-
-  return Math.min(100, Math.round((raw / maxPossible) * 100));
-}
-
-function AiScoreBadge({ score }: { score: number }) {
-  if (score <= 0) {
-    return (
-      <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-400">
-        —
-      </span>
-    );
-  }
-  const color = score >= 80
-    ? "bg-green-100 text-green-700 border-green-200"
-    : score >= 50
-      ? "bg-amber-100 text-amber-700 border-amber-200"
-      : "bg-red-100 text-red-700 border-red-200";
-  return (
-    <span className={`inline-flex min-w-8 items-center justify-center rounded-full border px-2 py-0.5 text-xs font-bold ${color}`}>
-      {score}
-    </span>
-  );
+function optionListWithValues(
+  opts: { id: string; name: string; color?: string }[],
+  values: string[],
+): { id: string; name: string; color?: string }[] {
+  const seen = new Set(opts.map(opt => normOpt(opt.name)));
+  const extras = values.reduce<{ id: string; name: string }[]>((acc, value) => {
+    const clean = value.trim();
+    const key = normOpt(clean);
+    if (!clean || seen.has(key)) return acc;
+    seen.add(key);
+    acc.push({ id: clean, name: clean });
+    return acc;
+  }, []);
+  return [...opts, ...extras];
 }
 
 export default function CandidatesClient({
   profile, sites, designations, sources, statuses, recruiters, interviewers,
-  initialStatus = "", initialHrId = "", initialCandidateId = "",
+  initialStatus = "", initialHrId = "", initialDesignationId = "", initialJobId = "", initialOwner = "all",
+  initialSiteId = "", initialDateFrom = "", initialDateTo = "", initialPipelineStage = "", initialForwardToId = "",
 }: Props) {
+  const router = useRouter();
   const [view, setView]             = useState<View>("sheet");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState("");
-  const [skillCriteria, setSkillCriteria] = useState<SkillCriteria>(EMPTY_CRITERIA);
-  const [draftSkillCriteria, setDraftSkillCriteria] = useState<SkillCriteria>(EMPTY_CRITERIA);
-  const [showSkillModal, setShowSkillModal] = useState(false);
-  const [savedViews, setSavedViews] = useState<SavedSkillView[]>([]);
-  const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [hrFilter, setHrFilter]         = useState(initialHrId);
-  const [siteFilter, setSiteFilter]     = useState("");
+  const [siteFilter, setSiteFilter]     = useState(initialSiteId);
+  const [dateFromFilter, setDateFromFilter]       = useState(initialDateFrom);
+  const [dateToFilter, setDateToFilter]           = useState(initialDateTo);
+  const [pipelineStageFilter, setPipelineStageFilter] = useState(initialPipelineStage);
+  const [forwardToFilter, setForwardToFilter]         = useState(initialForwardToId);
   const [statusFilter, setStatusFilter] = useState(initialStatus);
-  const [designFilter, setDesignFilter] = useState("");
-  const [period, setPeriod]             = useState<DatePeriod>("all");
-  const [dateFrom, setDateFrom]         = useState("");
-  const [dateTo, setDateTo]             = useState("");
-  const [customDateFrom, setCustomDateFrom] = useState("");
-  const [customDateTo, setCustomDateTo]     = useState("");
+  const [designFilter, setDesignFilter] = useState(initialDesignationId);
+  const [jobFilter, setJobFilter] = useState(initialJobId);
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>(initialOwner);
   const [kanbanFull, setKanbanFull]     = useState(false);
   const [colConfig, setColConfig]       = useState<{ pipeline: string[]; full: string[] }>({ pipeline: [], full: [] });
   const [editColIdx, setEditColIdx]     = useState<number | null>(null);
   const dragCol = useRef<string | null>(null);
 
-  const [panelId, setPanelId]           = useState<string | null>(initialCandidateId || null);
+  const [panelId, setPanelId]           = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // Auto-open candidate panel from ?open= query param (e.g. from notification click)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get("open");
+    if (openId) {
+      setPanelId(openId);
+      params.delete("open");
+      const newSearch = params.toString();
+      router.replace(window.location.pathname + (newSearch ? `?${newSearch}` : ""), { scroll: false });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Sheet editing state ──────────────────────────────────────────────────
   const [editing, setEditing]     = useState<{ rowId: string; col: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [sel, setSel]             = useState<{ ri: number; ci: number } | null>(null);
   const [saving, setSaving]       = useState<Set<string>>(new Set());
-  const commitLock = useRef(false);
-  const lastEdit   = useRef<{ rowId: string; col: string; oldVal: string } | null>(null);
+  const commitLock    = useRef(false);
+  const undoStack     = useRef<{ rowId: string; col: string; oldVal: string }[]>([]);
+  const prevEditingRef = useRef<typeof editing>(null);
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const [colSort, setColSort] = useState<{ key: string; dir: SortDir } | null>({ key: "application_date", dir: "asc" });
   const [openColFilter, setOpenColFilter] = useState<string | null>(null);
   const colFilterRef = useRef<HTMLDivElement>(null);
 
@@ -446,6 +328,7 @@ export default function CandidatesClient({
   const defaultStatus = statuses[0]?.name ?? "Sourced";
   const [newRow, setNewRow]           = useState<Record<string, string>>({ application_date: TODAY, final_status: defaultStatus });
   const [newRowActive, setNewRowActive] = useState<string | null>(null);
+  const newRowRef = useRef<HTMLTableRowElement>(null);
   const [savingNew, setSavingNew]     = useState(false);
 
   const tableRef    = useRef<HTMLDivElement>(null);
@@ -460,6 +343,7 @@ export default function CandidatesClient({
   const toOpts = (arr: string[]) => arr.map(s => ({ id: s, name: s, type: "", sort_order: 0, is_active: true, metadata: {}, created_at: "" }));
   const YN_OPTS   = toOpts(["Yes", "No"]);
   const YNNA_OPTS = toOpts(["Yes", "No", "NA"]);
+  const MGMT_OPTS = toOpts(["Call on Trial", "Hold", "Unsuitable", "Suitable"]);
 
   const dropdownOpts: Record<string, { id: string; name: string }[]> = {
     status:             statuses,
@@ -469,106 +353,58 @@ export default function CandidatesClient({
     month:              MONTH_OPTS,
     yesNo:              YN_OPTS,
     yesNoNA:            YNNA_OPTS,
+    mgmtDecision:       MGMT_OPTS,
     designationOrOther: [...designations, { id: "Other", name: "Other", type: "", sort_order: 999, is_active: true, metadata: {}, created_at: "" }],
     recruiter:          recruiters.map(r => ({ id: r.name, name: r.name, type: "", sort_order: 0, is_active: true, metadata: {}, created_at: "" })),
     interviewer:        interviewers,
   };
 
-  const skillActive = hasSkillCriteria(skillCriteria);
-  const skillSearchSummary = buildCriteriaSummary(skillCriteria);
+  const PAGE_SIZE = 200;
+  const [loadingMore, setLoadingMore] = useState(false);
+  const hasMore = candidates.length < total;
 
-  const skillSuggestions = useMemo<SkillSuggestionMap>(() => {
-    const buckets: Record<keyof SkillCriteria, Set<string>> = {
-      skills: new Set(),
-      tools: new Set(),
-      min_years_experience: new Set(),
-      education: new Set(),
-      college: new Set(),
-      current_role: new Set(),
-      previous_companies: new Set(),
-      projects: new Set(),
-      industries: new Set(),
-      certifications: new Set(),
-      languages: new Set(),
-      summary_tags: new Set(),
-    };
-
-    candidates.forEach(candidate => {
-      const kw = candidate.parsed_keywords ?? {};
-      addSuggestion(buckets.skills, kw.skills);
-      addSuggestion(buckets.skills, candidate.kw_skills);
-      addSuggestion(buckets.tools, kw.tools);
-      addSuggestion(buckets.education, kw.education);
-      addSuggestion(buckets.college, kw.college);
-      addSuggestion(buckets.current_role, kw.current_role);
-      addSuggestion(buckets.current_role, candidate.current_designation);
-      addSuggestion(buckets.previous_companies, kw.previous_companies);
-      addSuggestion(buckets.previous_companies, candidate.kw_previous_companies);
-      addSuggestion(buckets.projects, kw.projects);
-      addSuggestion(buckets.projects, candidate.kw_projects);
-      addSuggestion(buckets.industries, kw.industries);
-      addSuggestion(buckets.certifications, kw.certifications);
-      addSuggestion(buckets.languages, kw.languages);
-      addSuggestion(buckets.summary_tags, kw.summary_tags);
-      addSuggestion(buckets.summary_tags, candidate.kw_summary_tags);
-    });
-
-    designations.forEach(designation => {
-      addSuggestion(buckets.current_role, designation.name);
-      addSuggestion(buckets.summary_tags, designation.name);
-    });
-
-    return {
-      skills: sortedSuggestions(buckets.skills),
-      tools: sortedSuggestions(buckets.tools),
-      education: sortedSuggestions(buckets.education),
-      college: sortedSuggestions(buckets.college),
-      current_role: sortedSuggestions(buckets.current_role),
-      previous_companies: sortedSuggestions(buckets.previous_companies),
-      projects: sortedSuggestions(buckets.projects),
-      industries: sortedSuggestions(buckets.industries),
-      certifications: sortedSuggestions(buckets.certifications),
-      languages: sortedSuggestions(buckets.languages),
-      summary_tags: sortedSuggestions(buckets.summary_tags),
-    };
-  }, [candidates, designations]);
+  function buildFetchParams(offset = 0) {
+    const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+    if (hrFilter)            p.set("hr_id",           hrFilter);
+    if (siteFilter)          p.set("site_id",          siteFilter);
+    if (statusFilter)        p.set("status",           statusFilter);
+    if (designFilter)        p.set("designation_id",   designFilter);
+    if (jobFilter)           p.set("job_id",           jobFilter);
+    if (search)              p.set("search",           search);
+    if (dateFromFilter)      p.set("date_from",        dateFromFilter);
+    if (dateToFilter)        p.set("date_to",          dateToFilter);
+    if (pipelineStageFilter) p.set("pipeline_stage",   pipelineStageFilter);
+    if (forwardToFilter)     p.set("forward_to_id",    forwardToFilter);
+    return p;
+  }
 
   // ── Fetch ────────────────────────────────────────────────────────────────
   const fetchCandidates = useCallback(async () => {
     setLoading(true);
     try {
-      const derivedRange = period === "custom"
-        ? { from: dateFrom, to: dateTo }
-        : getDateRangeForPeriod(period);
-      const p = new URLSearchParams({ limit: "2000" });
-      if (hrFilter)     p.set("hr_id",         hrFilter);
-      if (siteFilter)   p.set("site_id",        siteFilter);
-      if (statusFilter) p.set("status",         statusFilter);
-      if (designFilter) p.set("designation_id", designFilter);
-      if (search)       p.set("search",         search);
-      const skillSearch = criteriaToSearchString(skillCriteria);
-      if (skillSearch)  p.set("kw_search",      skillSearch);
-      if (derivedRange.from) p.set("date_from", derivedRange.from);
-      if (derivedRange.to) p.set("date_to", derivedRange.to);
-      const res  = await fetch(`/api/candidates?${p}`);
+      const res  = await fetch(`/api/candidates?${buildFetchParams(0)}`);
       const json = await res.json();
       setCandidates(json.data ?? []);
       setTotal(json.count ?? 0);
     } finally {
       setLoading(false);
     }
-  }, [hrFilter, siteFilter, statusFilter, designFilter, search, skillCriteria, period, dateFrom, dateTo]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hrFilter, siteFilter, statusFilter, designFilter, jobFilter, search, dateFromFilter, dateToFilter, pipelineStageFilter, forwardToFilter]);
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res  = await fetch(`/api/candidates?${buildFetchParams(candidates.length)}`);
+      const json = await res.json();
+      setCandidates(prev => [...prev, ...(json.data ?? [])]);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
-
-  useEffect(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem("ats_saved_skill_views") ?? "[]");
-      setSavedViews(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setSavedViews([]);
-    }
-  }, []);
 
   // Load saved kanban column order / config from localStorage
   useEffect(() => {
@@ -586,12 +422,49 @@ export default function CandidatesClient({
     }
   }, [editing]);
 
-  // Scroll selected cell into view when navigating with arrow keys
+  // Scroll a column index into horizontal view — uses known column widths, no viewport math
+  function scrollCiIntoView(ci: number) {
+    const container = tableRef.current;
+    if (!container) return;
+    const ROW_NUM_W = 32;
+    let cellLeft = ROW_NUM_W;
+    for (let i = 0; i < ci; i++) cellLeft += SHEET_COLS[i].width;
+    const cellRight = cellLeft + SHEET_COLS[ci].width;
+    const sl = container.scrollLeft;
+    const cw = container.clientWidth;
+    if (cellRight > sl + cw)  container.scrollLeft = cellRight - cw;
+    else if (cellLeft < sl)   container.scrollLeft = cellLeft;
+  }
+
+  // Scroll selected cell into view when navigating
   useEffect(() => {
     if (!sel) return;
-    const cell = tableRef.current?.querySelector(`td[data-rc="${sel.ri}-${sel.ci}"]`);
-    (cell as HTMLElement)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const container = tableRef.current;
+    if (!container) return;
+    // Horizontal: use column-width math (reliable regardless of viewport position)
+    scrollCiIntoView(sel.ci);
+    // Vertical: use DOM rect (row heights vary)
+    const cell = container.querySelector(`td[data-rc="${sel.ri}-${sel.ci}"]`) as HTMLElement | null;
+    if (!cell) return;
+    const cr = cell.getBoundingClientRect();
+    const tr = container.getBoundingClientRect();
+    const bottom = tr.top + container.clientHeight;
+    if (cr.bottom > bottom)     container.scrollTop += cr.bottom - bottom;
+    else if (cr.top < tr.top)   container.scrollTop -= tr.top - cr.top;
   }, [sel]);
+
+  // Auto-focus the table div when switching to sheet view so arrow keys work immediately
+  useEffect(() => {
+    if (view === "sheet") tableRef.current?.focus();
+  }, [view]);
+
+  // Restore table focus AFTER React commits when editing closes (select unmounts after batched render)
+  useEffect(() => {
+    if (prevEditingRef.current !== null && editing === null) {
+      tableRef.current?.focus();
+    }
+    prevEditingRef.current = editing;
+  }, [editing]);
 
   useEffect(() => {
     function handleOutside(e: MouseEvent) {
@@ -603,15 +476,52 @@ export default function CandidatesClient({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [openColFilter]);
 
-  const scoredCandidates = useMemo(() => {
-    if (!skillActive) return candidates;
-    return [...candidates]
-      .map(c => ({ ...c, _liveScore: scoreCandidate(c, skillCriteria) }))
-      .sort((a, b) => (b._liveScore ?? 0) - (a._liveScore ?? 0));
-  }, [candidates, skillActive, skillCriteria]);
+  // Global Ctrl+Z undo — works regardless of where focus is after a mouse-click edit
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== "z") return;
+      if (editing || newRowActive) return;
+      e.preventDefault();
+      const entry = undoStack.current[0];
+      if (entry) {
+        undoStack.current = undoStack.current.slice(1);
+        commitEdit(entry.rowId, entry.col, entry.oldVal, "none", true);
+        toast(`Undo — ${entry.col.replace(/_/g, " ")}`, { icon: "↩" });
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [editing, newRowActive]);
 
+  // Focus the active new-row input and scroll it into view
+  useEffect(() => {
+    if (!newRowActive) return;
+    const el = document.getElementById(`nr-${newRowActive}`) as HTMLInputElement | HTMLSelectElement | null;
+    el?.focus({ preventScroll: true });
+    const ci = SHEET_COLS.findIndex(c => c.key === newRowActive);
+    if (ci >= 0) scrollCiIntoView(ci);
+  }, [newRowActive]);
+
+  // Clear new-row blue box whenever the user clicks outside the new-row tr.
+  // Capture phase so this fires before any click/mousedown handler on the target.
+  useEffect(() => {
+    if (!newRowActive) return;
+    function onGlobalMouseDown(e: MouseEvent) {
+      if (!newRowRef.current?.contains(e.target as Node)) {
+        setNewRowActive(null);
+      }
+    }
+    document.addEventListener('mousedown', onGlobalMouseDown, true);
+    return () => document.removeEventListener('mousedown', onGlobalMouseDown, true);
+  }, [newRowActive]);
+
+  // ── Owner/Live client-side filter ────────────────────────────────────────
   const visibleCandidates = useMemo(() => {
-    let result = scoredCandidates;
+    let result = candidates;
+    if (ownerFilter === 'mine')    result = result.filter(c => c.hr_id === profile.id || c.created_by === profile.id);
+    if (ownerFilter === 'live')    result = result.filter(c => !DEAD_STATUSES.has(c.final_status ?? ''));
+    if (ownerFilter === 'offered') result = result.filter(c => ["Offered","Appointed","Offered But Did Not Join"].includes(c.final_status ?? ''));
+    if (ownerFilter === 'joined')  result = result.filter(c => c.final_status === "Joined" || c.final_status === "Active Employee" || Boolean(c.doj_actual));
     Object.entries(colFilters).forEach(([colKey, filterVal]) => {
       if (!filterVal) return;
       const col = SHEET_COLS.find(sc => sc.key === colKey);
@@ -620,82 +530,37 @@ export default function CandidatesClient({
         return (colKey === 'month' ? fmtMonth(v) : v) === filterVal;
       });
     });
+    if (colSort) {
+      const col = SHEET_COLS.find(sc => sc.key === colSort.key);
+      const dir = colSort.dir === "asc" ? 1 : -1;
+      result = [...result].sort((a, b) => {
+        const av = getCellValue(a, colSort.key, col?.type);
+        const bv = getCellValue(b, colSort.key, col?.type);
+        if (!av && !bv) return 0;
+        if (!av) return 1;
+        if (!bv) return -1;
+
+        if (col?.type === "date") {
+          return (Date.parse(av) - Date.parse(bv)) * dir;
+        }
+        if (col?.type === "number") {
+          return (Number(av) - Number(bv)) * dir;
+        }
+        if (colSort.key === "month") {
+          return normalizeMonthToId(av).localeCompare(normalizeMonthToId(bv)) * dir;
+        }
+        return av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" }) * dir;
+      });
+    }
     return result;
-  }, [scoredCandidates, colFilters]);
+  }, [candidates, ownerFilter, profile.id, colFilters, colSort]);
 
-  function handlePeriodChange(val: string) {
-    const nextPeriod = val as DatePeriod;
-    setPeriod(nextPeriod);
-    if (nextPeriod !== "custom") {
-      setCustomDateFrom("");
-      setCustomDateTo("");
-      setDateFrom("");
-      setDateTo("");
-    }
-  }
-
-  function applyCustomDateRange() {
-    setDateFrom(customDateFrom);
-    setDateTo(customDateTo);
-  }
-
-  function openSkillModal() {
-    setDraftSkillCriteria(skillCriteria);
-    setShowSkillModal(true);
-  }
-
-  function closeSkillModal() {
-    setDraftSkillCriteria(skillCriteria);
-    setActiveViewId(savedViews.find(view => criteriaEqual(view.criteria, skillCriteria))?.id ?? null);
-    setShowSkillModal(false);
-  }
-
-  function applySkillCriteria(criteria: SkillCriteria) {
-    setSkillCriteria(criteria);
-    setDraftSkillCriteria(criteria);
-    setActiveViewId(savedViews.find(view => criteriaEqual(view.criteria, criteria))?.id ?? null);
-    setShowSkillModal(false);
-  }
-
-  function clearSkillCriteria() {
-    setSkillCriteria(EMPTY_CRITERIA);
-    setDraftSkillCriteria(EMPTY_CRITERIA);
-    setActiveViewId(null);
-  }
-
-  function persistSavedViews(nextViews: SavedSkillView[]) {
-    setSavedViews(nextViews);
-    localStorage.setItem("ats_saved_skill_views", JSON.stringify(nextViews));
-  }
-
-  function saveSkillView(name: string, criteria: SkillCriteria) {
-    if (!name.trim()) return;
-    if (!hasSkillCriteria(criteria)) {
-      toast.error("Add search criteria before saving");
-      return;
-    }
-    const view: SavedSkillView = {
-      id: crypto.randomUUID(),
-      name: name.trim().slice(0, 40),
-      criteria,
-      created_at: new Date().toISOString(),
-    };
-    persistSavedViews([...savedViews, view]);
-    toast.success("View saved");
-  }
-
-  function applySavedView(viewToApply: SavedSkillView) {
-    setSkillCriteria(viewToApply.criteria);
-    setDraftSkillCriteria(viewToApply.criteria);
-    setActiveViewId(viewToApply.id);
-    setShowSkillModal(false);
-  }
-
-  function deleteSavedView(viewId: string) {
-    if (!window.confirm("Delete this saved view?")) return;
-    persistSavedViews(savedViews.filter(view => view.id !== viewId));
-    if (activeViewId === viewId) setActiveViewId(null);
-  }
+  const statusStages = useMemo(() => {
+    return optionListWithValues(
+      statuses,
+      visibleCandidates.map(c => c.final_status?.trim() ?? ""),
+    );
+  }, [statuses, visibleCandidates]);
 
   // ── Permission ───────────────────────────────────────────────────────────
   function canEdit(cand: Candidate) {
@@ -722,6 +587,7 @@ export default function CandidatesClient({
   async function commitEdit(
     rowId: string, col: string, value: string,
     next?: "right" | "left" | "down" | "none",
+    isUndo = false,
   ) {
     if (commitLock.current) return;
     commitLock.current = true;
@@ -745,7 +611,12 @@ export default function CandidatesClient({
 
     const cand   = candidates.find(c => c.id === rowId);
     const colDef = SHEET_COLS.find(c => c.key === col);
-    if (cand && colDef) lastEdit.current = { rowId, col, oldVal: getCellValue(cand, col, colDef.type) };
+    if (!isUndo && cand && colDef) {
+      undoStack.current = [
+        { rowId, col, oldVal: getCellValue(cand, col, colDef.type) },
+        ...undoStack.current.slice(0, 19),
+      ];
+    }
 
     // Optimistic update
     setCandidates(prev => prev.map(c =>
@@ -787,6 +658,15 @@ export default function CandidatesClient({
     return String(raw);
   }
 
+  function formatDateDisplay(isoDate: string): string {
+    if (!isoDate) return "";
+    const [year, month, day] = isoDate.split("-");
+    if (!year || !month || !day) return isoDate;
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const m = parseInt(month, 10);
+    return `${day}-${MONTHS[m - 1] ?? month}-${year}`;
+  }
+
   function getUniqueColVals(colKey: string): string[] {
     const col = SHEET_COLS.find(c => c.key === colKey);
     const vals = new Set<string>();
@@ -807,6 +687,7 @@ export default function CandidatesClient({
 
   function handleTableKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (editing) return;
+    if (newRowActive) return;
     if (!sel) {
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "F2"].includes(e.key)) {
         e.preventDefault(); setSel({ ri: 0, ci: 0 });
@@ -815,7 +696,19 @@ export default function CandidatesClient({
     }
     const { ri, ci } = sel;
     if (e.key === "ArrowUp")    { e.preventDefault(); moveSel(ri - 1, ci); return; }
-    if (e.key === "ArrowDown")  { e.preventDefault(); moveSel(ri + 1, ci); return; }
+    if (e.key === "ArrowDown")  {
+      e.preventDefault();
+      if (ri === visibleCandidates.length - 1) {
+        // Step from last regular row into the new-row at the same column
+        const targetKey = SHEET_COLS[ci]?.readOnly
+          ? (SHEET_COLS.find(c => !c.readOnly)?.key ?? null)
+          : (SHEET_COLS[ci]?.key ?? null);
+        if (targetKey) { setSel(null); setNewRowActive(targetKey); }
+      } else {
+        moveSel(ri + 1, ci);
+      }
+      return;
+    }
     if (e.key === "ArrowLeft")  { e.preventDefault(); moveSel(ri, ci - 1); return; }
     if (e.key === "ArrowRight") { e.preventDefault(); moveSel(ri, ci + 1); return; }
     if (e.key === "Tab")        { e.preventDefault(); e.shiftKey ? moveSel(ri, ci - 1) : moveSel(ri, ci + 1); return; }
@@ -838,25 +731,15 @@ export default function CandidatesClient({
       }
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === "z") {
-      e.preventDefault();
-      if (lastEdit.current) {
-        const { rowId, col, oldVal } = lastEdit.current;
-        lastEdit.current = null;
-        commitEdit(rowId, col, oldVal, "none");
-        toast("Undo", { icon: "↩" });
-      }
-      return;
-    }
     if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey) {
       const cand = visibleCandidates[ri]; const col = SHEET_COLS[ci];
       if (cand && col && !col.readOnly && canEdit(cand)) commitEdit(cand.id, col.key, "");
       return;
     }
-    // Printable char -> start editing (skip readOnly/dropdown)
+    // Printable char → start editing (skip name/readOnly/dropdown)
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const cand = visibleCandidates[ri]; const col = SHEET_COLS[ci];
-      if (cand && col && !col.readOnly && col.type !== "dropdown")
+      if (cand && col && !col.readOnly && col.type !== "dropdown" && col.key !== "name")
         startEdit(cand.id, col.key, e.key);
     }
   }
@@ -904,10 +787,15 @@ export default function CandidatesClient({
         body: JSON.stringify(payload),
       });
       if (res.ok) {
+        const json = await res.json();
         toast.success("Candidate added");
         setNewRow({ application_date: TODAY, final_status: defaultStatus });
         setNewRowActive(null);
-        fetchCandidates();
+        // Append at the bottom — avoids scroll-to-top caused by a full refetch
+        if (json.data) {
+          setCandidates(prev => [...prev, json.data]);
+          setTotal(t => t + 1);
+        }
       } else {
         const err = await res.json();
         toast.error(err.error ?? "Failed to add");
@@ -946,7 +834,6 @@ export default function CandidatesClient({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("candidate_id", cvModal.candidateId);
       const res = await fetch(`/api/candidates/${cvModal.candidateId}/cv`, { method: "POST", body: fd });
       if (!res.ok) { const e = await res.json(); toast.error(e.error ?? "Upload failed"); return; }
       const j = await res.json();
@@ -955,21 +842,6 @@ export default function CandidatesClient({
       setCvPasteUrl(url);
       setCvModal(prev => prev ? { ...prev, currentUrl: url } : null);
       toast.success("CV uploaded and linked");
-      try {
-        const parseFd = new FormData();
-        parseFd.append("file", file);
-        parseFd.append("candidate_id", cvModal.candidateId);
-        const parseRes = await fetch("/api/parse-resume", { method: "POST", body: parseFd });
-        if (parseRes.ok) {
-          const parsed = await parseRes.json();
-          const parsedKeywords = parsed.data?.parsed_keywords;
-          if (parsedKeywords) {
-            setCandidates(prev => prev.map(c => c.id === cvModal.candidateId ? { ...c, parsed_keywords: parsedKeywords } : c));
-          }
-        }
-      } catch {
-        // CV upload should still succeed even when AI parsing is unavailable.
-      }
     } catch { toast.error("Upload failed"); }
     finally { setCvUploading(false); }
   }
@@ -1042,7 +914,9 @@ export default function CandidatesClient({
           <button
             onClick={() => view === "sheet"
               ? (setSel(null), setEditing(null), setNewRowActive("name"),
-                 setTimeout(() => document.getElementById("nr-name")?.focus(), 50))
+                 setTimeout(() => {
+                   if (tableRef.current) tableRef.current.scrollTop = tableRef.current.scrollHeight;
+                 }, 50))
               : setShowAddModal(true)}
             className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-brand-600">
             + {view === "sheet" ? "Add Row" : "Add Candidate"}
@@ -1051,153 +925,61 @@ export default function CandidatesClient({
       </div>
 
       {/* ── Filter Bar ── */}
-      <div className="bg-white border-b border-gray-100 px-6 py-2 flex flex-wrap gap-2 items-center flex-shrink-0">
-        {savedViews.length > 0 && (
-          <div className="w-full overflow-x-auto pb-1">
-            <div className="flex min-w-0 items-center gap-2">
-              {savedViews.map(viewItem => {
-                const active = activeViewId === viewItem.id || criteriaEqual(skillCriteria, viewItem.criteria);
-                return (
-                  <span
-                    key={viewItem.id}
-                    className={[
-                      "flex items-center gap-1 rounded-full border border-brand-200 px-2.5 py-1 text-xs text-brand-700",
-                      active ? "bg-brand-100 font-semibold" : "bg-brand-50",
-                    ].join(" ")}
-                  >
-                    {active && <Check size={11} />}
-                    <button
-                      type="button"
-                      onClick={() => applySavedView(viewItem)}
-                      className="max-w-44 truncate"
-                      title={viewItem.name}
-                    >
-                      {viewItem.name}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        deleteSavedView(viewItem.id);
-                      }}
-                      className="text-brand-500 hover:text-brand-800"
-                      aria-label={`Delete ${viewItem.name}`}
-                    >
-                      <X size={11} />
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
+      <div className="bg-white border-b border-gray-100 px-4 py-2 flex flex-wrap gap-1.5 items-center flex-shrink-0">
         {/* Search */}
         <div className="relative">
           <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search name, mobile, email…"
-            className="text-xs border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 w-52 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none" />
+            placeholder="Search name / mobile / email"
+            className="text-xs border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 w-48 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none" />
           <svg className="absolute left-2 top-2.5" width="12" height="12" fill="none" stroke="#9ca3af" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <div className="relative">
-          <input
-            readOnly
-            value={skillSearchSummary}
-            onClick={openSkillModal}
-            onFocus={openSkillModal}
-            placeholder='Skill Search: "Python 4 years"'
-            className="text-xs border border-gray-200 rounded-lg pl-7 pr-7 py-1.5 w-60 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none cursor-pointer bg-white" />
-          <svg className="absolute left-2 top-2.5" width="12" height="12" fill="none" stroke="#9ca3af" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          {skillActive && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                clearSkillCriteria();
-              }}
-              className="absolute right-2 top-2 text-gray-400 hover:text-gray-700">
-              <X size={12} />
+
+        {/* Owner filter pill toggle */}
+        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
+          {([["all", "All"], ["mine", "Mine"], ["live", "Live"], ["offered", "Offered"], ["joined", "Joined"]] as [OwnerFilter, string][]).map(([val, lbl]) => (
+            <button key={val} onClick={() => setOwnerFilter(val)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                ownerFilter === val ? "bg-white shadow text-brand-600 font-semibold" : "text-gray-500 hover:text-gray-700"
+              }`}>{lbl}
             </button>
-          )}
+          ))}
         </div>
-
-        <select
-          value={period}
-          onChange={(e) => handlePeriodChange(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none"
-        >
-          <option value="all">All Time</option>
-          <option value="month">This Month</option>
-          <option value="lastmonth">Last Month</option>
-          <option value="last30">Last 30 Days</option>
-          <option value="custom">Custom Range...</option>
-        </select>
-
-        {period === "custom" && (
-          <>
-            <input
-              type="date"
-              value={customDateFrom}
-              onChange={(e) => setCustomDateFrom(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none"
-            />
-            <span className="text-gray-300 text-xs">to</span>
-            <input
-              type="date"
-              value={customDateTo}
-              onChange={(e) => setCustomDateTo(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none"
-            />
-            <button
-              onClick={applyCustomDateRange}
-              className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-brand-600"
-            >
-              Apply
-            </button>
-          </>
-        )}
 
         {["admin", "hr_manager"].includes(profile.role) && (
-          <select value={hrFilter} onChange={e => setHrFilter(e.target.value)}
-            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none">
-            <option value="">All Recruiters</option>
-            {recruiters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
+          <SearchCombobox
+            options={recruiters.map(r => ({ id: r.id, name: r.name }))}
+            value={hrFilter}
+            onChange={setHrFilter}
+            placeholder="Recruiter"
+            className="w-32"
+          />
         )}
-        <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none">
-          <option value="">All Sites</option>
-          {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none">
-          <option value="">All Statuses</option>
-          {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-        </select>
-        <select value={designFilter} onChange={e => setDesignFilter(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none">
-          <option value="">All Designations</option>
-          {designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-        {(hrFilter || siteFilter || statusFilter || designFilter || search || skillActive || period !== "all" || dateFrom || dateTo || customDateFrom || customDateTo) && (
-          <button onClick={() => {
-            setHrFilter("");
-            setSiteFilter("");
-            setStatusFilter("");
-            setDesignFilter("");
-            setSearch("");
-            clearSkillCriteria();
-            setPeriod("all");
-            setDateFrom("");
-            setDateTo("");
-            setCustomDateFrom("");
-            setCustomDateTo("");
-          }}
+        <SearchCombobox
+          options={sites.map(s => ({ id: s.id, name: s.name }))}
+          value={siteFilter}
+          onChange={setSiteFilter}
+          placeholder="Site"
+          className="w-28"
+        />
+        <SearchCombobox
+          options={statuses.map(s => ({ id: s.name, name: s.name }))}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          placeholder="Status"
+          className="w-32"
+        />
+        <SearchCombobox
+          options={designations.map(d => ({ id: d.id, name: d.name }))}
+          value={designFilter}
+          onChange={setDesignFilter}
+          placeholder="Designation"
+          className="w-32"
+        />
+        {(hrFilter || siteFilter || statusFilter || designFilter || jobFilter || search || colSort) && (
+          <button onClick={() => { setHrFilter(""); setSiteFilter(""); setStatusFilter(""); setDesignFilter(""); setJobFilter(""); setSearch(""); setColSort(null); }}
             className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 px-2.5 py-1.5 rounded-lg bg-white">✕ Clear</button>
         )}
         {Object.keys(colFilters).length > 0 && (
@@ -1207,7 +989,7 @@ export default function CandidatesClient({
           </button>
         )}
         <span className="ml-auto text-xs text-gray-400">
-          {loading ? "…" : `${visibleCandidates.length} of ${total.toLocaleString()}`}
+          {loading ? "…" : `${visibleCandidates.length} shown · ${candidates.length} loaded of ${total.toLocaleString()}`}
         </span>
       </div>
 
@@ -1229,20 +1011,38 @@ export default function CandidatesClient({
                   <th className="border-b-2 border-r border-gray-200 px-2 py-2 bg-gray-50" style={{ width: 32 }}>#</th>
                   {SHEET_COLS.map(col => {
                     const hasFilter = !!colFilters[col.key];
+                    const isSorted = colSort?.key === col.key;
                     const isFilterOpen = openColFilter === col.key;
                     return (
                       <th key={col.key} style={{ width: col.width, minWidth: col.width }}
                         className="border-b-2 border-r border-gray-200 px-2 py-2 text-left bg-gray-50 relative group">
                         <div className="flex items-center gap-1 min-w-0">
-                          <span className="font-semibold text-gray-600 text-xs truncate flex-1">{col.label}</span>
+                          <span className="font-semibold text-gray-600 text-xs truncate flex-1">
+                            {col.label}{isSorted ? (colSort.dir === "asc" ? " ↑" : " ↓") : ""}
+                          </span>
                           <button
                             onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setOpenColFilter(isFilterOpen ? null : col.key); }}
-                            className={`flex-shrink-0 text-xs leading-none rounded transition-colors opacity-0 group-hover:opacity-100 ${hasFilter ? 'text-brand-500 opacity-100 font-bold' : 'text-gray-400 hover:text-gray-600'}`}
-                            title={hasFilter ? `Filtered: ${colFilters[col.key]}` : 'Filter'}
+                            className={`flex-shrink-0 text-xs leading-none rounded transition-colors opacity-0 group-hover:opacity-100 ${(hasFilter || isSorted) ? 'text-brand-500 opacity-100 font-bold' : 'text-gray-400 hover:text-gray-600'}`}
+                            title={hasFilter ? `Filtered: ${colFilters[col.key]}` : isSorted ? `Sorted ${colSort.dir === "asc" ? "ascending" : "descending"}` : 'Sort / filter'}
                           >▼</button>
                         </div>
                         {isFilterOpen && (
                           <div ref={colFilterRef} className="absolute top-full left-0 z-50 bg-white border border-gray-200 shadow-xl rounded-lg py-1 overflow-y-auto" style={{ minWidth: Math.max(col.width, 140), maxHeight: 260 }}>
+                            <div
+                              onMouseDown={e => { e.preventDefault(); setColSort({ key: col.key, dir: "asc" }); setOpenColFilter(null); }}
+                              className={`px-3 py-1.5 text-xs cursor-pointer hover:bg-brand-50 ${isSorted && colSort.dir === "asc" ? 'font-semibold text-brand-600 bg-brand-50' : 'text-gray-700'}`}
+                            >Ascending</div>
+                            <div
+                              onMouseDown={e => { e.preventDefault(); setColSort({ key: col.key, dir: "desc" }); setOpenColFilter(null); }}
+                              className={`px-3 py-1.5 text-xs cursor-pointer hover:bg-brand-50 ${isSorted && colSort.dir === "desc" ? 'font-semibold text-brand-600 bg-brand-50' : 'text-gray-700'}`}
+                            >Descending</div>
+                            {isSorted && (
+                              <div
+                                onMouseDown={e => { e.preventDefault(); setColSort(null); setOpenColFilter(null); }}
+                                className="px-3 py-1.5 text-xs cursor-pointer hover:bg-gray-50 text-gray-500 border-b border-gray-100"
+                              >Clear sort</div>
+                            )}
+                            {!isSorted && <div className="border-b border-gray-100 my-1" />}
                             <div
                               onMouseDown={e => { e.preventDefault(); setColFilters(p => { const n = {...p}; delete n[col.key]; return n; }); setOpenColFilter(null); }}
                               className={`px-3 py-1.5 text-xs cursor-pointer hover:bg-gray-50 ${!colFilters[col.key] ? 'font-semibold text-brand-600' : 'text-gray-500'}`}
@@ -1279,7 +1079,7 @@ export default function CandidatesClient({
                         const isNameCol  = col.key === "name";
                         const isReadOnly = !!col.readOnly;
                         const canEditCell = editable && !isReadOnly;
-                        const displayVal  = col.key === "month" ? fmtMonth(rawVal) : rawVal;
+                        const displayVal  = col.key === "month" ? fmtMonth(rawVal) : col.type === "date" && rawVal ? formatDateDisplay(rawVal) : rawVal;
 
                         return (
                           <td key={col.key}
@@ -1316,7 +1116,7 @@ export default function CandidatesClient({
                                   className="w-full h-full border-0 outline-none bg-amber-50 text-xs px-2 py-1.5 block"
                                   style={{ minWidth: col.width }}>
                                   <option value="">—</option>
-                                  {dropdownOpts[col.dropdownKey]?.map(opt => (
+                                  {optionListWithCurrent(dropdownOpts[col.dropdownKey] ?? [], editValue).map(opt => (
                                     <option key={opt.id} value={col.key === "month" ? opt.id : opt.name}>
                                       {opt.name}
                                     </option>
@@ -1337,14 +1137,12 @@ export default function CandidatesClient({
                               )
                             ) : (
                               <div className={[
-                                "px-2 py-1.5 text-xs leading-snug truncate",
-                                isNameCol ? "font-semibold text-gray-900 cursor-pointer" : "",
+                                "px-2 py-1.5 truncate text-xs leading-snug",
+                                isNameCol   ? "text-brand-600 font-semibold cursor-pointer hover:underline" : "",
                                 isReadOnly  ? "text-gray-400" : "",
-                                !editable && !isReadOnly && !isNameCol ? "text-gray-400" : "text-gray-800",
+                                !editable && !isReadOnly ? "text-gray-400" : "text-gray-800",
                               ].join(" ")}>
-                                {col.key === "ai_score" && skillActive
-                                  ? <AiScoreBadge score={cand._liveScore ?? 0} />
-                                  : col.key === "final_status" && rawVal
+                                {col.key === "final_status" && rawVal
                                   ? <span className={`px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${STATUS_COLORS[rawVal] ?? "bg-gray-100 text-gray-600"}`}>{rawVal}</span>
                                   : (col.key === "naukri_link" || col.key === "naukri_profile_url") && rawVal
                                     ? <a href={rawVal} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-blue-500 hover:underline">🔗 Link</a>
@@ -1371,7 +1169,7 @@ export default function CandidatesClient({
                 })}
 
                 {/* ── New row ── */}
-                <tr className="bg-brand-50/40 border-b-2 border-brand-200">
+                <tr ref={newRowRef} className="bg-brand-50/40 border-b-2 border-brand-200">
                   <td className="border-r border-brand-100 px-2 py-1 text-brand-400 font-bold text-center select-none">+</td>
                   {SHEET_COLS.map(col => {
                     const isActive = newRowActive === col.key;
@@ -1385,19 +1183,42 @@ export default function CandidatesClient({
                     return (
                       <td key={col.key} style={{ width: col.width, maxWidth: col.width }}
                         className={`border-r border-brand-100 p-0 cursor-cell ${isActive ? "ring-2 ring-inset ring-brand-500 bg-white z-10" : "hover:bg-brand-50/60"}`}
-                        onClick={() => setNewRowActive(col.key)}>
+                        onClick={() => { setSel(null); setNewRowActive(col.key); }}>
                         {isActive ? (
                           col.type === "dropdown" && col.dropdownKey ? (
-                            <select autoFocus value={val}
+                            <select id={`nr-${col.key}`} value={val}
                               onChange={e => setNewRow(p => ({ ...p, [col.key]: e.target.value }))}
-                              onBlur={() => setNewRowActive(null)}
                               onKeyDown={e => {
-                                if (e.key === "Tab" || e.key === "Enter") {
-                                  e.preventDefault();
-                                  const keys = SHEET_COLS.filter(c => !c.readOnly).map(c => c.key);
-                                  setNewRowActive(keys[keys.indexOf(col.key) + 1] ?? null);
+                                const nrKeys = SHEET_COLS.filter(c => !c.readOnly).map(c => c.key);
+                                const nrIdx  = nrKeys.indexOf(col.key);
+                                if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  const above = visibleCandidates[visibleCandidates.length - 1];
+                                  if (above) {
+                                    const v = getCellValue(above, col.key, col.type);
+                                    if (v) setNewRow(p => ({ ...p, [col.key]: v }));
+                                  }
                                 }
-                                if (e.key === "Escape") setNewRowActive(null);
+                                if (e.key === "Tab" || e.key === "Enter") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  setNewRowActive(nrKeys[nrIdx + 1] ?? null);
+                                }
+                                if (e.key === "ArrowRight") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  setNewRowActive(nrKeys[nrIdx + 1] ?? null);
+                                }
+                                if (e.key === "ArrowLeft") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  if (nrIdx > 0) setNewRowActive(nrKeys[nrIdx - 1]);
+                                }
+                                if (e.key === "ArrowUp") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  setNewRowActive(null);
+                                  const ci = SHEET_COLS.findIndex(c => c.key === col.key);
+                                  if (visibleCandidates.length > 0) setSel({ ri: visibleCandidates.length - 1, ci: Math.max(0, ci) });
+                                  tableRef.current?.focus();
+                                }
+                                if (e.key === "Escape") { setNewRowActive(null); }
                               }}
                               className="w-full h-full border-0 outline-none bg-white text-xs px-2 py-1.5 block"
                               style={{ minWidth: col.width }}>
@@ -1408,24 +1229,41 @@ export default function CandidatesClient({
                             </select>
                           ) : (
                             <input
-                              id={col.key === "name" ? "nr-name" : undefined}
-                              autoFocus={col.key !== "name"}
+                              id={`nr-${col.key}`}
                               type={col.type === "date" ? "date" : col.type === "number" ? "number" : col.type === "url" ? "url" : "text"}
                               value={val}
                               onChange={e => setNewRow(p => ({ ...p, [col.key]: e.target.value }))}
-                              onBlur={() => setNewRowActive(null)}
                               onKeyDown={e => {
+                                const nrKeys = SHEET_COLS.filter(c => !c.readOnly).map(c => c.key);
+                                const nrIdx  = nrKeys.indexOf(col.key);
+                                if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  const above = visibleCandidates[visibleCandidates.length - 1];
+                                  if (above) {
+                                    const v = getCellValue(above, col.key, col.type);
+                                    if (v) setNewRow(p => ({ ...p, [col.key]: v }));
+                                  }
+                                }
                                 if (e.key === "Tab" || e.key === "Enter") {
-                                  e.preventDefault();
-                                  const keys = SHEET_COLS.filter(c => !c.readOnly).map(c => c.key);
-                                  const idx  = keys.indexOf(col.key);
-                                  const next = keys[idx + (e.shiftKey && e.key === "Tab" ? -1 : 1)];
-                                  setNewRowActive(next ?? null);
+                                  e.preventDefault(); e.stopPropagation();
+                                  const next = nrKeys[nrIdx + (e.shiftKey && e.key === "Tab" ? -1 : 1)] ?? null;
+                                  setNewRowActive(next);
                                   if (!next) saveNewRow();
                                 }
-                                if (e.key === "Escape") setNewRowActive(null);
+                                if (e.key === "ArrowLeft") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  if (nrIdx > 0) setNewRowActive(nrKeys[nrIdx - 1]);
+                                }
+                                if (e.key === "ArrowUp") {
+                                  e.preventDefault(); e.stopPropagation();
+                                  setNewRowActive(null);
+                                  const ci = SHEET_COLS.findIndex(c => c.key === col.key);
+                                  if (visibleCandidates.length > 0) setSel({ ri: visibleCandidates.length - 1, ci: Math.max(0, ci) });
+                                  tableRef.current?.focus();
+                                }
+                                if (e.key === "Escape") { setNewRowActive(null); }
                               }}
-                              placeholder=""
+                              placeholder={col.key === "name" ? "Type name to add…" : ""}
                               className="w-full border-0 outline-none bg-white text-xs px-2 py-1.5 block"
                               style={{ minWidth: col.width }}
                               min={col.type === "number" ? "0" : undefined}
@@ -1435,7 +1273,9 @@ export default function CandidatesClient({
                           <div className="px-2 py-1.5 text-xs truncate">
                             {val
                               ? <span className="text-gray-700">{col.key === "month" ? fmtMonth(val) : val}</span>
-                              : <span className="text-gray-200">—</span>}
+                              : col.key === "name"
+                                ? <span className="text-brand-300 italic">Click to add name…</span>
+                                : <span className="text-gray-200">—</span>}
                           </div>
                         )}
                       </td>
@@ -1452,6 +1292,14 @@ export default function CandidatesClient({
                 </tr>
               </tbody>
             </table>
+            {hasMore && !loading && (
+              <div className="flex justify-center py-4">
+                <button onClick={loadMore} disabled={loadingMore}
+                  className="text-xs border border-gray-200 px-4 py-2 rounded-lg bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                  {loadingMore ? "Loading…" : `Load ${PAGE_SIZE} more (${candidates.length} of ${total.toLocaleString()} loaded)`}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1469,7 +1317,8 @@ export default function CandidatesClient({
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
                 {visibleCandidates.map(cand => (
                   <div key={cand.id} onClick={() => setPanelId(cand.id)}
                     className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md hover:border-brand-200 cursor-pointer transition-all">
@@ -1477,13 +1326,8 @@ export default function CandidatesClient({
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900 text-sm truncate">{cand.name}</p>
                         <p className="text-xs text-gray-400 truncate">{cand.designation_name ?? cand.current_designation}</p>
-                        <KeywordTags tags={getKeywordTags(cand)} />
                       </div>
-                      {skillActive ? (
-                        <div className="ml-2 flex-shrink-0">
-                          <AiScoreBadge score={cand._liveScore ?? 0} />
-                        </div>
-                      ) : cand.ai_score != null && (
+                      {cand.ai_score != null && (
                         <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold flex-shrink-0 ml-2 ${cand.ai_score >= 80 ? "border-green-500 text-green-700" : cand.ai_score >= 60 ? "border-yellow-500 text-yellow-700" : "border-red-400 text-red-600"}`}>
                           {cand.ai_score}
                         </div>
@@ -1502,7 +1346,7 @@ export default function CandidatesClient({
                         }).then(r => { if (!r.ok) { toast.error("Status update failed"); fetchCandidates(); } });
                       }}
                       className={`text-xs font-semibold rounded-full px-1.5 py-0.5 border-0 outline-none cursor-pointer appearance-none max-w-full ${STATUS_COLORS[cand.final_status ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
-                      {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      {optionListWithCurrent(statuses, cand.final_status ?? "").map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                     </select>
                     <div className="text-xs text-gray-400 space-y-0.5 mt-2">
                       {cand.site_name && <div>📍 {cand.site_name}</div>}
@@ -1515,38 +1359,86 @@ export default function CandidatesClient({
                   </div>
                 ))}
               </div>
+              {hasMore && !loading && (
+                <div className="flex justify-center py-4">
+                  <button onClick={loadMore} disabled={loadingMore}
+                    className="text-xs border border-gray-200 px-4 py-2 rounded-lg bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                    {loadingMore ? "Loading…" : `Load ${PAGE_SIZE} more (${candidates.length} of ${total.toLocaleString()} loaded)`}
+                  </button>
+                </div>
+              )}
+              </>
             )}
           </div>
         )}
 
         {/* ════════════════ KANBAN VIEW ════════════════ */}
         {view === "kanban" && (() => {
-          const kanbanStages = kanbanFull
-            ? statuses
-            : statuses.filter(s => KANBAN_CORE_KEYS.has(s.name));
-
-          // Resolve ordered stages from saved config (falls back to default order)
-          const savedOrder = kanbanFull ? colConfig.full : colConfig.pipeline;
-          const stageMap   = new Map(statuses.map(s => [s.name, s]));
-          const colNames: string[] = savedOrder.length
+          // ── All Stages: individual status columns with saved order ──────────
+          const savedOrder   = colConfig.full;
+          const stageMap     = new Map(statusStages.map(s => [s.name, s]));
+          const fullColNames: string[] = savedOrder.length
             ? [
                 ...savedOrder.filter(n => stageMap.has(n)),
-                ...kanbanStages.map(s => s.name).filter(n => !savedOrder.includes(n)),
+                ...statusStages.map(s => s.name).filter(n => !savedOrder.includes(n)),
               ]
-            : kanbanStages.map(s => s.name);
-          const orderedStages = colNames.map(n => stageMap.get(n)).filter(Boolean) as typeof kanbanStages;
+            : statusStages.map(s => s.name);
+          const orderedStages = fullColNames.map(n => stageMap.get(n)).filter(Boolean) as typeof statusStages;
 
-          function saveOrder(names: string[]) {
-            const key = kanbanFull ? "kanban-col-full" : "kanban-col-pipeline";
-            localStorage.setItem(key, JSON.stringify(names));
-            setColConfig(prev => kanbanFull ? { ...prev, full: names } : { ...prev, pipeline: names });
+          function saveFullOrder(names: string[]) {
+            localStorage.setItem("kanban-col-full", JSON.stringify(names));
+            setColConfig(prev => ({ ...prev, full: names }));
+          }
+          function resetFullOrder() {
+            localStorage.removeItem("kanban-col-full");
+            setColConfig(prev => ({ ...prev, full: [] }));
+            setEditColIdx(null);
           }
 
-          function resetOrder() {
-            const key = kanbanFull ? "kanban-col-full" : "kanban-col-pipeline";
-            localStorage.removeItem(key);
-            setColConfig(prev => kanbanFull ? { ...prev, full: [] } : { ...prev, pipeline: [] });
-            setEditColIdx(null);
+          // ── Shared card renderer ────────────────────────────────────────────
+          function getInitials(name?: string | null) {
+            if (!name) return "";
+            const parts = name.trim().split(/\s+/);
+            if (parts.length === 1) return parts[0][0].toUpperCase();
+            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+          }
+
+          function KanbanCard({ cand, color }: { cand: (typeof visibleCandidates)[0]; color: string }) {
+            const initials = getInitials(cand.hr_name);
+            return (
+              <div draggable
+                onDragStart={() => onDragStart(cand.id)} onClick={() => setPanelId(cand.id)}
+                className="bg-white rounded-lg p-2.5 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow select-none relative"
+                style={{ borderLeft: `3px solid ${color}` }}>
+                {initials && (
+                  <span
+                    title={cand.hr_name ?? ""}
+                    className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-white font-bold leading-none flex-shrink-0"
+                    style={{ fontSize: 9, background: color }}>
+                    {initials}
+                  </span>
+                )}
+                <p className="text-xs font-semibold text-gray-900 leading-tight pr-7">{cand.name}</p>
+                <p className="text-xs text-gray-400 mt-0.5 truncate">{cand.designation_name}</p>
+                {cand.site_name && <p className="text-xs text-gray-400">{cand.site_name}</p>}
+                <select
+                  value={cand.final_status ?? ""}
+                  onClick={e => e.stopPropagation()}
+                  onChange={e => {
+                    e.stopPropagation();
+                    const s = e.target.value;
+                    setCandidates(prev => prev.map(c => c.id === cand.id ? { ...c, final_status: s } : c));
+                    fetch(`/api/candidates/${cand.id}`, {
+                      method: "PATCH", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ final_status: s }),
+                    }).then(r => { if (!r.ok) { toast.error("Status update failed"); fetchCandidates(); } });
+                  }}
+                  className="mt-1.5 w-full text-xs border border-gray-100 rounded px-1 py-0.5 bg-white text-gray-600 outline-none cursor-pointer">
+                  {optionListWithCurrent(statusStages, cand.final_status ?? "").map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+                {cand.doj_actual && <p className="text-xs text-green-600 mt-0.5">✓ {cand.doj_actual.slice(0, 10)}</p>}
+              </div>
+            );
           }
 
           return (
@@ -1564,114 +1456,114 @@ export default function CandidatesClient({
                     All Stages
                   </button>
                 </div>
-                <span className="text-xs text-gray-300">{orderedStages.length} columns</span>
-                <span className="text-xs text-gray-300">· drag column headers to reorder · click name to change stage</span>
-                {savedOrder.length > 0 && (
-                  <button onClick={resetOrder} className="ml-auto text-xs text-gray-400 hover:text-brand-500 transition-colors">
-                    Reset order
-                  </button>
+                {kanbanFull ? (
+                  <>
+                    <span className="text-xs text-gray-300">{orderedStages.length} columns · drag headers to reorder · click name to change stage</span>
+                    {savedOrder.length > 0 && (
+                      <button onClick={resetFullOrder} className="ml-auto text-xs text-gray-400 hover:text-brand-500 transition-colors">
+                        Reset order
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-xs text-gray-300">{PIPELINE_GROUPS.length} columns</span>
                 )}
               </div>
 
-              <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
-                <div className="flex gap-3 h-full" style={{ minWidth: orderedStages.length * 212 }}>
-                  {orderedStages.map((stage, stageIdx) => {
-                    const stageCands = visibleCandidates.filter(c => c.final_status === stage.name);
-                    const color      = stage.color ?? "#6b7280";
-                    return (
-                      <div key={stage.name}
-                        className="flex flex-col rounded-xl bg-gray-100/80 flex-shrink-0 overflow-hidden" style={{ width: 200 }}
-                        onDragOver={e => e.preventDefault()}
-                        onDrop={async () => {
-                          if (dragCol.current && dragCol.current !== stage.name) {
-                            // Column reorder
-                            const names = [...colNames];
-                            const fi = names.indexOf(dragCol.current);
-                            const ti = names.indexOf(stage.name);
-                            if (fi >= 0 && ti >= 0) {
-                              names.splice(fi, 1);
-                              names.splice(ti, 0, dragCol.current);
-                              saveOrder(names);
-                            }
+              {/* ── PIPELINE view: 7 grouped columns ── */}
+              {!kanbanFull && (
+                <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
+                  <div className="flex gap-3 h-full" style={{ minWidth: PIPELINE_GROUPS.length * 212 }}>
+                    {PIPELINE_GROUPS.map(group => {
+                      const groupCands = visibleCandidates.filter(c => group.statuses.has(c.final_status ?? ""));
+                      return (
+                        <div key={group.name}
+                          className="flex flex-col rounded-xl bg-gray-100/80 flex-shrink-0 overflow-hidden" style={{ width: 200 }}
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={async () => {
+                            if (!dragCol.current) await handleCardDrop(group.defaultStatus);
                             dragCol.current = null;
-                          } else {
-                            await handleCardDrop(stage.name);
-                          }
-                        }}>
-                        {/* Column header — draggable for reorder */}
-                        <div
-                          draggable
-                          onDragStart={e => {
-                            dragCol.current = stage.name;
-                            dragId.current  = null;
-                            e.dataTransfer.effectAllowed = "move";
-                          }}
-                          onDragEnd={() => { dragCol.current = null; }}
-                          className="flex items-center justify-between px-3 py-2.5 flex-shrink-0 cursor-grab active:cursor-grabbing group"
-                        >
-                          {editColIdx === stageIdx ? (
-                            <select
-                              autoFocus
-                              value={stage.name}
-                              onBlur={() => setEditColIdx(null)}
-                              onChange={e => {
-                                const newName = e.target.value;
-                                const names   = [...colNames];
-                                names[stageIdx] = newName;
-                                saveOrder(names);
-                                setEditColIdx(null);
-                              }}
-                              className="text-xs font-semibold text-gray-700 bg-white border border-brand-400 rounded px-1 outline-none w-full mr-1"
-                            >
-                              {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                            </select>
-                          ) : (
-                            <span
-                              onClick={() => setEditColIdx(stageIdx)}
-                              className="text-xs font-semibold text-gray-700 truncate mr-1 cursor-pointer hover:text-brand-500 transition-colors select-none"
-                              title="Click to change stage"
-                            >
-                              {stage.name}
-                            </span>
-                          )}
-                          <span className="text-xs font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0"
-                            style={{ background: color }}>{stageCands.length}</span>
+                          }}>
+                          {/* Column header */}
+                          <div className="flex items-center justify-between px-3 py-2.5 flex-shrink-0">
+                            <span className="text-xs font-semibold text-gray-700 truncate mr-1">{group.name}</span>
+                            <span className="text-xs font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0"
+                              style={{ background: group.color }}>{groupCands.length}</span>
+                          </div>
+                          <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1.5">
+                            {groupCands.map(cand => (
+                              <KanbanCard key={cand.id} cand={cand} color={group.color} />
+                            ))}
+                            {groupCands.length === 0 && <p className="text-xs text-gray-300 italic text-center py-4">Drop here</p>}
+                          </div>
                         </div>
-                        <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1.5">
-                          {stageCands.map(cand => (
-                            <div key={cand.id} draggable
-                              onDragStart={() => onDragStart(cand.id)} onClick={() => setPanelId(cand.id)}
-                              className="bg-white rounded-lg p-2.5 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow select-none"
-                              style={{ borderLeft: `3px solid ${color}` }}>
-                              <p className="text-xs font-semibold text-gray-900 leading-tight">{cand.name}</p>
-                              <p className="text-xs text-gray-400 mt-0.5 truncate">{cand.designation_name}</p>
-                              <KeywordTags tags={getKeywordTags(cand)} max={3} />
-                              {cand.site_name && <p className="text-xs text-gray-400">{cand.site_name}</p>}
-                              <select
-                                value={cand.final_status ?? ""}
-                                onClick={e => e.stopPropagation()}
-                                onChange={e => {
-                                  e.stopPropagation();
-                                  const s = e.target.value;
-                                  setCandidates(prev => prev.map(c => c.id === cand.id ? { ...c, final_status: s } : c));
-                                  fetch(`/api/candidates/${cand.id}`, {
-                                    method: "PATCH", headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ final_status: s }),
-                                  }).then(r => { if (!r.ok) { toast.error("Status update failed"); fetchCandidates(); } });
-                                }}
-                                className="mt-1.5 w-full text-xs border border-gray-100 rounded px-1 py-0.5 bg-white text-gray-600 outline-none cursor-pointer">
-                                {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                              </select>
-                              {cand.doj_actual && <p className="text-xs text-green-600 mt-0.5">✓ {cand.doj_actual.slice(0, 10)}</p>}
-                            </div>
-                          ))}
-                          {stageCands.length === 0 && <p className="text-xs text-gray-300 italic text-center py-4">Drop here</p>}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* ── ALL STAGES view: individual status columns ── */}
+              {kanbanFull && (
+                <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
+                  <div className="flex gap-3 h-full" style={{ minWidth: orderedStages.length * 212 }}>
+                    {orderedStages.map((stage, stageIdx) => {
+                      const stageCands = visibleCandidates.filter(c => c.final_status === stage.name);
+                      const color      = stage.color ?? "#6b7280";
+                      return (
+                        <div key={stage.name}
+                          className="flex flex-col rounded-xl bg-gray-100/80 flex-shrink-0 overflow-hidden" style={{ width: 200 }}
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={async () => {
+                            if (dragCol.current && dragCol.current !== stage.name) {
+                              const names = [...fullColNames];
+                              const fi = names.indexOf(dragCol.current);
+                              const ti = names.indexOf(stage.name);
+                              if (fi >= 0 && ti >= 0) { names.splice(fi, 1); names.splice(ti, 0, dragCol.current); saveFullOrder(names); }
+                              dragCol.current = null;
+                            } else {
+                              await handleCardDrop(stage.name);
+                            }
+                          }}>
+                          {/* Column header — draggable for reorder */}
+                          <div
+                            draggable
+                            onDragStart={e => { dragCol.current = stage.name; dragId.current = null; e.dataTransfer.effectAllowed = "move"; }}
+                            onDragEnd={() => { dragCol.current = null; }}
+                            className="flex items-center justify-between px-3 py-2.5 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                          >
+                            {editColIdx === stageIdx ? (
+                              <select autoFocus value={stage.name}
+                                onBlur={() => setEditColIdx(null)}
+                                onChange={e => {
+                                  const names = [...fullColNames]; names[stageIdx] = e.target.value;
+                                  saveFullOrder(names); setEditColIdx(null);
+                                }}
+                                className="text-xs font-semibold text-gray-700 bg-white border border-brand-400 rounded px-1 outline-none w-full mr-1">
+                                {statusStages.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                              </select>
+                            ) : (
+                              <span onClick={() => setEditColIdx(stageIdx)}
+                                className="text-xs font-semibold text-gray-700 truncate mr-1 cursor-pointer hover:text-brand-500 transition-colors select-none"
+                                title="Click to change stage">
+                                {stage.name}
+                              </span>
+                            )}
+                            <span className="text-xs font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0"
+                              style={{ background: color }}>{stageCands.length}</span>
+                          </div>
+                          <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1.5">
+                            {stageCands.map(cand => (
+                              <KanbanCard key={cand.id} cand={cand} color={color} />
+                            ))}
+                            {stageCands.length === 0 && <p className="text-xs text-gray-300 italic text-center py-4">Drop here</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1693,20 +1585,6 @@ export default function CandidatesClient({
         />
       )}
 
-      <SkillSearchModal
-        open={showSkillModal}
-        onClose={closeSkillModal}
-        criteria={draftSkillCriteria}
-        onChange={(criteria) => {
-          setDraftSkillCriteria(criteria);
-          setActiveViewId(savedViews.find(viewItem => criteriaEqual(viewItem.criteria, criteria))?.id ?? null);
-        }}
-        onApply={applySkillCriteria}
-        savedViews={savedViews}
-        onSaveView={saveSkillView}
-        suggestions={skillSuggestions}
-      />
-
       {/* ── CV Upload / Link Modal ── */}
       {cvModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1715,7 +1593,7 @@ export default function CandidatesClient({
             <div className="flex items-center justify-between px-6 py-4 border-b">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">CV — {cvModal.name}</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Paste a URL or upload to Supabase</p>
+                <p className="text-xs text-gray-400 mt-0.5">Paste a Google Drive link or upload a file</p>
               </div>
               <button onClick={() => setCvModal(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
@@ -1735,16 +1613,16 @@ export default function CandidatesClient({
                 </div>
               )}
 
-              {/* Option A: Paste URL */}
+              {/* Option A: Paste Google Drive URL */}
               <div>
                 <label className="text-xs font-semibold text-gray-600 flex items-center gap-1.5 mb-1.5">
-                  <LinkIcon size={12} /> Paste Supabase / Naukri / any URL
+                  <LinkIcon size={12} /> Paste Google Drive / Naukri / any URL
                 </label>
                 <input
                   type="url"
                   value={cvPasteUrl}
                   onChange={e => setCvPasteUrl(e.target.value)}
-                  placeholder="https://.../candidate-cv.pdf"
+                  placeholder="https://drive.google.com/file/d/..."
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
@@ -1768,7 +1646,7 @@ export default function CandidatesClient({
                   <Upload size={15} />
                   {cvUploading ? "Uploading…" : "Upload PDF / Word file"}
                 </button>
-                <p className="text-xs text-gray-400 mt-1.5 text-center">Max 15 MB · PDF, DOC, DOCX · Stored in Supabase</p>
+                <p className="text-xs text-gray-400 mt-1.5 text-center">Max 10 MB · PDF, DOC, DOCX · Stored in Supabase</p>
               </div>
             </div>
 

@@ -38,60 +38,6 @@ export interface CustomColumn {
   is_active: boolean;
 }
 
-export interface ParsedKeywords {
-  skills?: string[];
-  years_experience?: number;
-  education?: string;
-  college?: string;
-  current_role?: string;
-  previous_companies?: string[];
-  projects?: string[];
-  industries?: string[];
-  tools?: string[];
-  certifications?: string[];
-  languages?: string[];
-  summary_tags?: string[];
-}
-
-export interface SkillCriteria {
-  skills: string;
-  tools: string;
-  min_years_experience: string;
-  education: string;
-  college: string;
-  current_role: string;
-  previous_companies: string;
-  projects: string;
-  industries: string;
-  certifications: string;
-  languages: string;
-  summary_tags: string;
-}
-
-export interface SavedSkillView {
-  id: string;
-  name: string;
-  criteria: SkillCriteria;
-  created_at: string;
-}
-
-export interface CandidateJobScore {
-  id: string;
-  candidate_id: string;
-  job_id: string;
-  fit_score: number;
-  fit_breakdown: {
-    skills_match?: number;
-    experience_match?: number;
-    education_match?: number;
-    matched_skills?: string[];
-    missing_skills?: string[];
-    ai_reasoning?: string;
-  };
-  scored_at: string;
-  scored_by_model?: string;
-}
-
 export interface Candidate {
   id: string;
   sr_no: number;
@@ -154,17 +100,10 @@ export interface Candidate {
   doj_actual?: string;
   hard_copy?: string;
   staffingo_emp_id?: string;
+  referred_by?: string;
   // AI
   ai_score?: number;
   ai_summary?: string;
-  parsed_keywords?: ParsedKeywords;
-  kw_years_experience?: number;
-  kw_college?: string;
-  kw_skills?: string[];
-  kw_projects?: string[];
-  kw_previous_companies?: string[];
-  kw_summary_tags?: string[];
-  _liveScore?: number;
   // CV
   cv_drive_url?: string;
   cv_filename?: string;
@@ -206,7 +145,6 @@ export interface Job {
   id: string;
   title: string;
   job_type: JobType;
-  job_platform?: string;
   status: JobStatus;
   designation_id?: string;
   site_id?: string;
@@ -251,6 +189,8 @@ export interface JobRecruiter {
   job_id: string;
   recruiter_id: string;
   assigned_at: string;
+  assigned_from?: string;
+  assigned_until?: string;
   assigned_by?: string;
   // Joined
   recruiter_name?: string;
@@ -384,7 +324,7 @@ export interface SyncConflict {
 
 // ── Dashboard ────────────────────────────────────────────────
 
-export type DatePeriod = "all" | "month" | "lastmonth" | "last30" | "custom";
+export type DatePeriod = "today" | "all" | "month" | "lastmonth" | "last30" | "custom";
 
 export interface DashboardFilters {
   period: DatePeriod;
@@ -461,40 +401,41 @@ export const ROLES: { value: Role; label: string }[] = [
 ];
 
 export const KANBAN_STAGES = [
-  { key: "Sourced",                label: "Sourced",            color: "#6b7280" },
-  { key: "Tel Int Scheduled",      label: "Tel Scheduled",      color: "#a78bfa" },
-  { key: "Tel Int Done",           label: "Tel Done",           color: "#8b5cf6" },
-  { key: "Google Form Sent",       label: "GF Sent",            color: "#34d399" },
-  { key: "Shortlisted by HR",      label: "Shortlisted HR",     color: "#10b981" },
-  { key: "PI Scheduled",           label: "PI Scheduled",       color: "#818cf8" },
-  { key: "PI Done",                label: "PI Done",            color: "#6366f1" },
-  { key: "Shortlisted by Mgmt",    label: "Shortlisted Mgmt",   color: "#84cc16" },
-  { key: "GF Issued",              label: "GF Issued",          color: "#fbbf24" },
-  { key: "GF Received",            label: "GF Received",        color: "#f59e0b" },
-  { key: "Appointed/Offered",      label: "Offered",            color: "#FF2D87" },
-  { key: "Joined",                 label: "Joined",             color: "#16a34a" },
-  { key: "On Hold",                label: "On Hold",            color: "#d97706" },
-  { key: "Rejected/Dropped",       label: "Rejected",           color: "#ef4444" },
-  { key: "Offered But Not Joined", label: "Not Joined",         color: "#dc2626" },
+  { key: "Sourced",                    label: "Sourced",                  color: "#6b7280" },
+  { key: "Applied",                    label: "Applied",                  color: "#94a3b8" },
+  { key: "Recruiter Screening Done",   label: "Recruiter Screening",      color: "#3b82f6" },
+  { key: "HR Manager Screening Done",  label: "HR Screening",             color: "#06b6d4" },
+  { key: "Dept Mgr Screening Done",    label: "Dept Screening",           color: "#8b5cf6" },
+  { key: "Mgmt Approved for PI Call",  label: "Mgmt Approved",            color: "#6366f1" },
+  { key: "Called for PI",              label: "Called for PI",            color: "#a855f7" },
+  { key: "Did Not Attend Interview",   label: "No Show",                  color: "#f87171" },
+  { key: "PI 1 Done",                  label: "PI 1 Done",                color: "#6366f1" },
+  { key: "PI 2 Done",                  label: "PI 2 Done",                color: "#a855f7" },
+  { key: "GF Issued",                  label: "GF Issued",                color: "#fbbf24" },
+  { key: "Shortlisted",                label: "Shortlisted",              color: "#14b8a6" },
+  { key: "Shortlisted But Not Offered",label: "Shortlisted (Not Offered)",color: "#2dd4bf" },
+  { key: "Hold",                       label: "Hold",                     color: "#d97706" },
+  { key: "Suitable for Future",        label: "Suitable Future",          color: "#60a5fa" },
+  { key: "Offered But Did Not Join",   label: "Offered (No Join)",        color: "#dc2626" },
+  { key: "Offered",                    label: "Offered",                  color: "#ff2d87" },
+  { key: "Not Interested",             label: "Not Interested",           color: "#f87171" },
+  { key: "Rejected",                   label: "Rejected",                 color: "#ef4444" },
+  { key: "Appointed",                  label: "Appointed",                color: "#e61f73" },
+  { key: "Joined",                     label: "Joined",                   color: "#16a34a" },
+  { key: "Joined & Left",              label: "Joined & Left",            color: "#6b7280" },
+  { key: "Active Employee",            label: "Active Employee",          color: "#15803d" },
+  { key: "Not Yet Processed",          label: "Not Yet Processed",        color: "#9ca3af" },
+  { key: "Other",                      label: "Other",                    color: "#d1d5db" },
+  { key: "Dropped By Candidate",       label: "Dropped By Candidate",     color: "#ef4444" },
 ] as const;
 
 export const PIPELINE_STAGES = [
-  "Sourced",
-  "Recruiter Screening Done",
-  "Tel Int Scheduled",
-  "Tel Int Done",
-  "Google Form Sent",
-  "Shortlisted by HR",
-  "PI Scheduled",
-  "PI Done",
-  "Shortlisted by Mgmt",
-  "GF Issued",
-  "GF Received",
-  "Appointed/Offered",
-  "Joined",
-  "Rejected/Dropped",
-  "On Hold",
-  "Offered But Not Joined",
+  "Sourced","Applied","Recruiter Screening Done","HR Manager Screening Done",
+  "Dept Mgr Screening Done","Mgmt Approved for PI Call","Called for PI",
+  "Did Not Attend Interview","PI 1 Done","PI 2 Done","GF Issued","Shortlisted",
+  "Shortlisted But Not Offered","Hold","Suitable for Future","Offered But Did Not Join",
+  "Offered","Not Interested","Rejected","Appointed","Joined","Joined & Left",
+  "Active Employee","Not Yet Processed","Other","Dropped By Candidate",
 ] as const;
 
 export const YES_NO_OPTIONS = ["Y", "N", ""];
@@ -519,11 +460,13 @@ export interface CandidateOffer {
   annual_ctc?: number;
   ctc_data?: Record<string, number>;
   ctc_notes?: string;
+  ctc_confirm_method?: "physical_sign" | "email" | "whatsapp" | "verbal";
   ctc_sent_at?: string;
   ctc_confirmed_at?: string;
   offer_letter_html?: string;
   offer_sent_at?: string;
   offer_confirmed_at?: string;
+  offer_confirm_notes?: string;
   joining_date?: string;
   joined_at?: string;
   designation?: string;
@@ -539,115 +482,6 @@ export interface CandidateOffer {
   created_by?: string;
   updated_at: string;
   updated_by?: string;
-}
-
-export type AutomationChannel = "whatsapp" | "email" | "sms" | "in_app";
-export type AutomationTrigger =
-  | "stage_change" | "no_recruiter_contact" | "interview_scheduled" | "interview_upcoming"
-  | "interview_done_no_feedback" | "offer_sent_no_response" | "candidate_no_show" | "job_stale"
-  | "candidate_joined" | "schedule_daily_digest" | "schedule_weekly_summary" | "gf_no_return"
-  | "offer_not_joined";
-export type AutomationAction =
-  | "send_candidate_message" | "notify_recruiter" | "notify_hr_manager"
-  | "notify_interviewer" | "stop_all_followups";
-export type FollowupStatus = "pending" | "sent" | "skipped" | "cancelled" | "failed";
-export type RunStatus = "success" | "failed" | "skipped" | "dry_run";
-
-export interface MessageTemplate {
-  id: string;
-  name: string;
-  channel: AutomationChannel;
-  subject?: string | null;
-  body: string;
-  variables: string[];
-  category: string;
-  is_active: boolean;
-  is_system: boolean;
-  created_by?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AutomationRule {
-  id: string;
-  name: string;
-  description?: string | null;
-  is_active: boolean;
-  trigger_type: AutomationTrigger;
-  conditions: Record<string, unknown>;
-  action_type: AutomationAction;
-  template_id?: string | null;
-  action_config: Record<string, unknown>;
-  delay_hours: number;
-  max_per_candidate: number;
-  cooldown_hours: number;
-  sort_order: number;
-  created_by?: string | null;
-  created_at: string;
-  updated_at: string;
-  template?: MessageTemplate | null;
-}
-
-export interface CandidateFollowup {
-  id: string;
-  candidate_id: string;
-  rule_id: string;
-  status: FollowupStatus;
-  scheduled_at: string;
-  executed_at?: string | null;
-  trigger_context: Record<string, unknown>;
-  result?: Record<string, unknown>;
-  error_message?: string | null;
-  created_at: string;
-  updated_at: string;
-  automation_rules?: Pick<AutomationRule, "id" | "name" | "action_type" | "trigger_type"> | null;
-}
-
-export interface CommunicationLog {
-  id: string;
-  followup_id?: string | null;
-  rule_id?: string | null;
-  candidate_id?: string | null;
-  channel?: AutomationChannel | null;
-  recipient_type?: "candidate" | "recruiter" | "hr_manager" | "interviewer" | null;
-  recipient_id?: string | null;
-  recipient_phone?: string | null;
-  recipient_email?: string | null;
-  subject?: string | null;
-  body?: string | null;
-  status: RunStatus;
-  provider_message_id?: string | null;
-  provider_response?: Record<string, unknown> | null;
-  error_message?: string | null;
-  created_at: string;
-}
-
-export interface AutomationRun {
-  id: string;
-  started_at: string;
-  finished_at?: string | null;
-  mode: "live" | "dry_run";
-  followups_evaluated: number;
-  followups_sent: number;
-  followups_skipped: number;
-  followups_failed: number;
-  error_message?: string | null;
-}
-
-export interface AutomationSettings {
-  id: string;
-  twilio_account_sid?: string | null;
-  twilio_auth_token?: string | null;
-  twilio_whatsapp_from?: string | null;
-  resend_api_key?: string | null;
-  resend_from_email?: string | null;
-  resend_from_name?: string | null;
-  is_live: boolean;
-  company_name: string;
-  daily_digest_time: string;
-  weekly_digest_day: string;
-  updated_at: string;
-  updated_by?: string | null;
 }
 
 export interface CTCTemplate {

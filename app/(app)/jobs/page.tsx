@@ -1,22 +1,155 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { BarChart3, Link2, X, Upload } from "lucide-react";
+import { Link2, X, Upload, Send, Clock, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
-import type { Candidate, Job, Master, Profile } from "@/lib/types";
+import { useRouter } from "next/navigation";
+import type { Job, Master, Profile } from "@/lib/types";
 import toast from "react-hot-toast";
 
 interface FormSummary { id: string; name: string; type: string; }
 interface FormJobLink { form_id: string; forms: { id: string; name: string; type: string }; }
-interface RankedCandidate {
-  fit_score: number;
-  fit_breakdown: {
-    matched_skills?: string[];
-    missing_skills?: string[];
-    ai_reasoning?: string;
-  };
-  scored_at: string;
-  candidates: Candidate | null;
+interface AdminUser { id: string; name: string; role: string; }
+interface MastersState { sites: Master[]; designations: Master[]; recruiters: { id: string; name: string }[] }
+
+function JobFormFields({ f, setF, masters, ringColor = "orange" }: {
+  f: Partial<Job> & { recruiter_ids?: string[] };
+  setF: React.Dispatch<React.SetStateAction<Partial<Job> & { recruiter_ids?: string[] }>>;
+  masters: MastersState;
+  ringColor?: string;
+}) {
+  const cls = `w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-${ringColor}-500`;
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Job Title *</label>
+          <input value={f.title ?? ""} onChange={e => setF(p => ({...p, title: e.target.value}))}
+            placeholder="e.g. Electrical Engineer" className={cls} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Type</label>
+          <select value={f.job_type ?? "internal"} onChange={e => setF(p => ({...p, job_type: e.target.value as "internal"|"client"}))} className={cls}>
+            <option value="internal">Internal</option>
+            <option value="client">Client</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Designation</label>
+          <select value={f.designation_id ?? ""} onChange={e => setF(p => ({...p, designation_id: e.target.value || undefined}))} className={cls}>
+            <option value="">— Select —</option>
+            {masters.designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Site</label>
+          <select value={f.site_id ?? ""} onChange={e => setF(p => ({...p, site_id: e.target.value || undefined}))} className={cls}>
+            <option value="">— Select —</option>
+            {masters.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Headcount</label>
+          <input type="number" min={1} value={f.headcount ?? 1}
+            onChange={e => setF(p => ({...p, headcount: parseInt(e.target.value)}))} className={cls} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Priority</label>
+          <select value={f.priority ?? "normal"} onChange={e => setF(p => ({...p, priority: e.target.value as Job["priority"]}))} className={cls}>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Min Salary (₹)</label>
+          <input type="number" value={f.min_salary ?? ""} placeholder="e.g. 500000"
+            onChange={e => setF(p => ({...p, min_salary: parseFloat(e.target.value) || undefined}))} className={cls} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Max Salary (₹)</label>
+          <input type="number" value={f.max_salary ?? ""}
+            onChange={e => setF(p => ({...p, max_salary: parseFloat(e.target.value) || undefined}))} className={cls} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Opening Date</label>
+          <input type="date" value={f.opened_at ?? ""}
+            onChange={e => setF(p => ({...p, opened_at: e.target.value || undefined}))} className={cls} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 font-medium block mb-1">Target DOJ</label>
+          <input type="date" value={f.target_doj ?? ""}
+            onChange={e => setF(p => ({...p, target_doj: e.target.value || undefined}))} className={cls} />
+        </div>
+      </div>
+
+      {f.job_type === "client" && (
+        <div className="grid grid-cols-2 gap-3 border-t border-gray-100 pt-3">
+          <div>
+            <label className="text-xs text-gray-500 font-medium block mb-1">Client Name</label>
+            <input value={f.client_name ?? ""} onChange={e => setF(p => ({...p, client_name: e.target.value}))} className={cls} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 font-medium block mb-1">Placement Fee %</label>
+            <input type="number" value={f.placement_fee_pct ?? ""}
+              onChange={e => setF(p => ({...p, placement_fee_pct: parseFloat(e.target.value) || undefined}))} className={cls} />
+          </div>
+        </div>
+      )}
+
+      <div>
+        <label className="text-xs text-gray-500 font-medium block mb-1">Assign Recruiters</label>
+        {(f.recruiter_ids ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {(f.recruiter_ids ?? []).map(id => {
+              const r = masters.recruiters.find(r => r.id === id);
+              if (!r) return null;
+              return (
+                <span key={id} className="inline-flex items-center gap-1 bg-brand-100 text-brand-700 text-xs px-2.5 py-1 rounded-full font-medium">
+                  {r.name}
+                  <button type="button"
+                    onClick={() => setF(p => ({ ...p, recruiter_ids: (p.recruiter_ids ?? []).filter(i => i !== id) }))}
+                    className="hover:text-brand-900 text-sm leading-none ml-0.5">×</button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+        <select value="" onChange={e => { if (e.target.value) setF(p => ({ ...p, recruiter_ids: [...(p.recruiter_ids ?? []), e.target.value] })); }}
+          className={`${cls} text-gray-400`}>
+          <option value="">+ Add recruiter...</option>
+          {masters.recruiters.filter(r => !(f.recruiter_ids ?? []).includes(r.id)).map(r => (
+            <option key={r.id} value={r.id}>{r.name}</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="text-xs text-gray-500 font-medium block mb-1">Description</label>
+        <textarea rows={3} value={f.description ?? ""}
+          onChange={e => setF(p => ({...p, description: e.target.value || undefined}))}
+          className={`${cls} resize-none`} />
+      </div>
+    </div>
+  );
+}
+interface JobRequest {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  title: string;
+  job_type: string;
+  priority: string;
+  headcount: number;
+  status: "pending" | "approved" | "rejected";
+  note: string | null;
+  review_note: string | null;
+  created_at: string;
+  from_profile: { id: string; name: string; role: string };
+  to_profile: { id: string; name: string; role: string };
+  designation: { id: string; name: string } | null;
+  site: { id: string; name: string } | null;
 }
 
 type JobTab = "open" | "on_hold" | "closed" | "filled";
@@ -35,32 +168,11 @@ const PRIORITY_COLORS: Record<string, string> = {
   low:    "bg-gray-100 text-gray-500",
 };
 
-const JOB_PLATFORM_OPTIONS = [
-  "LinkedIn",
-  "Indeed",
-  "Naukri",
-  "Foundit",
-  "Apna",
-  "Company Website",
-  "Referral",
-  "Other",
-];
-
-function FitScoreBar({ score }: { score: number }) {
-  const color = score >= 80 ? "bg-green-500" : score >= 60 ? "bg-yellow-500" : "bg-red-400";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 bg-gray-100 rounded-full h-2">
-        <div className={`h-2 rounded-full ${color}`} style={{ width: `${score}%` }} />
-      </div>
-      <span className="text-sm font-semibold w-10 text-right">{score}%</span>
-    </div>
-  );
-}
-
 export default function JobsPage() {
+  const router = useRouter();
   const [tab, setTab]         = useState<JobTab>("open");
   const [jobs, setJobs]       = useState<Job[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -69,23 +181,49 @@ export default function JobsPage() {
     ({ sites: [], designations: [], recruiters: [] });
   const [linkingJob, setLinkingJob] = useState<Job | null>(null);
   const [allForms, setAllForms] = useState<FormSummary[]>([]);
-  const [linkedForms, setLinkedForms] = useState<string[]>([]); // form_ids linked to current job
+  const [linkedForms, setLinkedForms] = useState<string[]>([]);
   const [linkLoading, setLinkLoading] = useState(false);
-  const [rankingJob, setRankingJob] = useState<Job | null>(null);
-  const [rankedCandidates, setRankedCandidates] = useState<RankedCandidate[]>([]);
-  const [rankingLoading, setRankingLoading] = useState(false);
+
+  // Job request state
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestForm, setRequestForm] = useState<Partial<Job> & { recruiter_ids?: string[] }>({});
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
+  const [requestNote, setRequestNote] = useState("");
+  const [submittingRequest, setSubmittingRequest] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<JobRequest[]>([]);
+
+  const isAdmin = profile?.role === "admin";
+  const canRequestJob = profile?.role === "hr_manager" || profile?.role === "hod";
 
   useEffect(() => {
     Promise.all([
+      fetch("/api/users/me").then(r => r.json()),
       fetch("/api/masters?type=site").then(r => r.json()),
       fetch("/api/masters?type=designation").then(r => r.json()),
-      fetch("/api/users").then(r => r.json()),
-    ]).then(([s, d, u]) => setMasters({
-      sites: s.data ?? [],
-      designations: d.data ?? [],
-      recruiters: (u.data ?? []).filter((u: Profile) => u.role === "recruiter"),
-    }));
+      fetch("/api/users").then(r => r.ok ? r.json() : { data: [] }),
+      fetch("/api/users/admins").then(r => r.json()),
+    ]).then(([me, s, d, u, admins]) => {
+      const myProfile = me.data ?? null;
+      setProfile(myProfile);
+      const allUsers: Profile[] = u.data ?? [];
+      setMasters({
+        sites: s.data ?? [],
+        designations: d.data ?? [],
+        recruiters: allUsers.filter((u: Profile) => u.role === "recruiter"),
+      });
+      setAdminUsers(admins.data ?? []);
+    });
   }, []);
+
+  useEffect(() => {
+    if (!profile) return;
+    if (canRequestJob) {
+      fetch("/api/job-requests?mine=true").then(r => r.json()).then(rows => {
+        setPendingRequests((rows ?? []).filter((r: JobRequest) => r.status === "pending"));
+      });
+    }
+  }, [profile, canRequestJob]);
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -134,7 +272,52 @@ export default function JobsPage() {
     fetchJobs();
   }
 
+  async function submitJobRequest() {
+    if (!requestForm.title?.trim()) { toast.error("Job title is required"); return; }
+    if (selectedAdminIds.length === 0) { toast.error("Select at least one admin"); return; }
+    setSubmittingRequest(true);
+    try {
+      const res = await fetch("/api/job-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...requestForm,
+          headcount: requestForm.headcount ?? 1,
+          priority: requestForm.priority ?? "normal",
+          admin_ids: selectedAdminIds,
+          note: requestNote || undefined,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Job request sent to admin(s)");
+        setShowRequestModal(false);
+        setRequestForm({});
+        setSelectedAdminIds([]);
+        setRequestNote("");
+        // refresh pending list
+        fetch("/api/job-requests?mine=true").then(r => r.json()).then(rows => {
+          setPendingRequests((rows ?? []).filter((r: JobRequest) => r.status === "pending"));
+        });
+      } else {
+        const j = await res.json();
+        toast.error(j.error ?? "Failed to send request");
+      }
+    } finally {
+      setSubmittingRequest(false);
+    }
+  }
+
   const isClosed = (j: Job) => j.status === "closed" || j.status === "filled";
+
+  function openJobCandidates(job: Job) {
+    const isAdminView = profile?.role === "admin" || profile?.role === "hr_manager" || profile?.role === "hod";
+    const params = new URLSearchParams({ owner: isAdminView ? "all" : "mine" });
+    const designationId = job.designation_id ?? (job as Job & { designation?: { id?: string } }).designation?.id;
+    const designationName = job.designation_name ?? job.title;
+    if (designationId) params.set("designation_id", designationId);
+    if (designationName) params.set("designation_name", designationName);
+    router.push(`/candidates?${params.toString()}`);
+  }
 
   async function openLinkModal(job: Job) {
     setLinkingJob(job);
@@ -167,18 +350,10 @@ export default function JobsPage() {
     }
   }
 
-  async function openRankingModal(job: Job) {
-    setRankingJob(job);
-    setRankingLoading(true);
-    setRankedCandidates([]);
-    try {
-      const res = await fetch(`/api/jobs/${job.id}/ranked-candidates`);
-      const json = await res.json();
-      if (res.ok) setRankedCandidates(json.data ?? []);
-      else toast.error(json.error ?? "Failed to load ranked candidates");
-    } finally {
-      setRankingLoading(false);
-    }
+  function toggleAdmin(id: string) {
+    setSelectedAdminIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
   }
 
   const FORM_TYPE_COLORS: Record<string, string> = {
@@ -202,12 +377,56 @@ export default function JobsPage() {
             className="flex items-center gap-2 border border-gray-200 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">
             <Upload size={14} /> Import
           </Link>
-          <button onClick={() => setShowModal(true)}
-            className="bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-brand-600">
-            + New Job
-          </button>
+          {isAdmin && (
+            <button onClick={() => setShowModal(true)}
+              className="bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-brand-600">
+              + New Job
+            </button>
+          )}
+          {canRequestJob && (
+            <button onClick={() => setShowRequestModal(true)}
+              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700">
+              <Send size={14} /> Request Job
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Pending Request Cards (own requests, non-admin) */}
+      {canRequestJob && pendingRequests.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Awaiting Approval</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+            {pendingRequests.map(req => (
+              <div key={req.id} className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold text-sm text-gray-800">{req.title}</h3>
+                      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${PRIORITY_COLORS[req.priority] ?? ""}`}>
+                        {req.priority}
+                      </span>
+                    </div>
+                    {(req.designation || req.site) && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {req.designation?.name}{req.designation && req.site ? " · " : ""}{req.site?.name}
+                      </p>
+                    )}
+                  </div>
+                  <span className="flex-shrink-0 flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-medium">
+                    <Clock size={10} /> Pending
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Sent to <span className="font-medium text-gray-600">{req.to_profile.name}</span>
+                  {" · "}{new Date(req.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+                </p>
+                {req.note && <p className="text-xs text-gray-500 italic">"{req.note}"</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-0.5 border-b border-gray-200">
@@ -230,7 +449,8 @@ export default function JobsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           {jobs.map(job => (
             <div key={job.id}
-              className={`bg-white rounded-xl border ${isClosed(job) ? "border-gray-100 opacity-70" : "border-gray-200"} p-5 space-y-3`}>
+              onClick={() => openJobCandidates(job)}
+              className={`bg-white rounded-xl border ${isClosed(job) ? "border-gray-100 opacity-70" : "border-gray-200"} p-5 space-y-3 cursor-pointer hover:border-brand-200 hover:shadow-md transition-all`}>
               {/* Card Header */}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -249,9 +469,6 @@ export default function JobsPage() {
                     {job.designation_name} · {job.site_name}
                     {job.headcount > 1 ? ` · ${job.headcount} openings` : ""}
                   </p>
-                  {job.job_platform && (
-                    <p className="text-xs text-gray-400 mt-1">Posted on: {job.job_platform}</p>
-                  )}
                 </div>
                 <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-1.5 ${
                   job.status === "open" ? "bg-green-500" :
@@ -262,15 +479,37 @@ export default function JobsPage() {
 
               {/* Recruiters */}
               {job.recruiters && job.recruiters.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-gray-400">Assigned:</span>
-                  <div className="flex gap-1 flex-wrap">
-                    {job.recruiters.map(r => (
-                      <span key={r.id} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-medium">
-                        {r.recruiter_name}
-                      </span>
-                    ))}
-                  </div>
+                <div className="flex flex-col gap-1">
+                  {job.recruiters.filter(r => !r.assigned_until).length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs text-gray-400 shrink-0">Assigned:</span>
+                      {job.recruiters.filter(r => !r.assigned_until).map(r => (
+                        <span key={r.id} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                          {r.recruiter_name}
+                          {r.assigned_from && (
+                            <span className="text-brand-400 font-normal">
+                              · from {new Date(r.assigned_from).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {job.recruiters.filter(r => r.assigned_until).length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs text-gray-300 shrink-0">Past:</span>
+                      {job.recruiters.filter(r => r.assigned_until).map(r => (
+                        <span key={r.id} className="text-xs bg-gray-50 text-gray-400 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                          {r.recruiter_name}
+                          <span className="font-normal">
+                            {r.assigned_from && new Date(r.assigned_from).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+                            {" → "}
+                            {new Date(r.assigned_until!).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -323,31 +562,29 @@ export default function JobsPage() {
 
               {/* Actions */}
               {!isClosed(job) && (
-                <div className="flex gap-2 pt-1 border-t border-gray-100">
-                  <button
-                    onClick={() => openLinkModal(job)}
-                    className="text-xs text-blue-600 border border-blue-200 px-2.5 py-1 rounded-lg hover:bg-blue-50 flex items-center gap-1">
-                    <Link2 size={11} /> Forms
-                  </button>
-                  <button
-                    onClick={() => openRankingModal(job)}
-                    className="text-xs text-green-600 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-50 flex items-center gap-1">
-                    <BarChart3 size={11} /> Ranked
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditingJob(job);
-                      setForm({
-                        title: job.title, job_type: job.job_type, job_platform: job.job_platform, designation_id: job.designation_id,
-                        site_id: job.site_id, headcount: job.headcount, priority: job.priority,
-                        min_salary: job.min_salary, max_salary: job.max_salary,
-                        opened_at: job.opened_at, target_doj: job.target_doj,
-                        client_name: job.client_name, placement_fee_pct: job.placement_fee_pct,
-                        description: job.description,
-                        recruiter_ids: job.recruiters?.map(r => r.id) ?? [],
-                      });
-                    }}
-                    className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg">Edit</button>
+                <div className="flex gap-2 pt-1 border-t border-gray-100" onClick={e => e.stopPropagation()}>
+                  {profile?.role !== "recruiter" && (
+                    <button onClick={() => openLinkModal(job)}
+                      className="text-xs text-blue-600 border border-blue-200 px-2.5 py-1 rounded-lg hover:bg-blue-50 flex items-center gap-1">
+                      <Link2 size={11} /> Forms
+                    </button>
+                  )}
+                  {profile?.role !== "recruiter" && (
+                    <button
+                      onClick={() => {
+                        setEditingJob(job);
+                        setForm({
+                          title: job.title, job_type: job.job_type, designation_id: job.designation_id,
+                          site_id: job.site_id, headcount: job.headcount, priority: job.priority,
+                          min_salary: job.min_salary, max_salary: job.max_salary,
+                          opened_at: job.opened_at, target_doj: job.target_doj,
+                          client_name: job.client_name, placement_fee_pct: job.placement_fee_pct,
+                          description: job.description,
+                          recruiter_ids: job.recruiters?.filter(r => !r.assigned_until).map(r => r.recruiter_id) ?? [],
+                        });
+                      }}
+                      className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg">Edit</button>
+                  )}
                   <button onClick={() => toggleStatus(job, "on_hold")}
                     className="text-xs text-yellow-600 border border-yellow-200 px-2.5 py-1 rounded-lg hover:bg-yellow-50">
                     Hold
@@ -363,7 +600,7 @@ export default function JobsPage() {
                 </div>
               )}
               {isClosed(job) && (
-                <div className="flex justify-between items-center pt-1 border-t border-gray-100">
+                <div className="flex justify-between items-center pt-1 border-t border-gray-100" onClick={e => e.stopPropagation()}>
                   <span className="text-xs text-gray-400 capitalize">{job.status}</span>
                   <button onClick={() => toggleStatus(job, "open")}
                     className="text-xs text-brand-500 border border-brand-200 px-2.5 py-1 rounded-lg hover:bg-brand-50">
@@ -376,134 +613,13 @@ export default function JobsPage() {
         </div>
       )}
 
-      {/* Create Job Modal */}
+      {/* Create Job Modal (admin only) */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowModal(false)} />
           <div className="relative bg-white rounded-2xl p-6 w-[540px] max-h-[90vh] overflow-y-auto shadow-2xl z-10">
             <h3 className="font-bold text-gray-900 text-base mb-4">Create New Job</h3>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Job Title *</label>
-                  <input value={form.title ?? ""} onChange={e => setForm(p => ({...p, title: e.target.value}))}
-                    placeholder="e.g. Electrical Engineer"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Type</label>
-                  <select value={form.job_type ?? "internal"} onChange={e => setForm(p => ({...p, job_type: e.target.value as "internal"|"client"}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="internal">Internal</option>
-                    <option value="client">Client</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Job Platform</label>
-                  <select value={form.job_platform ?? ""} onChange={e => setForm(p => ({...p, job_platform: e.target.value || undefined}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">-- Select --</option>
-                    {JOB_PLATFORM_OPTIONS.map(platform => <option key={platform} value={platform}>{platform}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Designation</label>
-                  <select value={form.designation_id ?? ""} onChange={e => setForm(p => ({...p, designation_id: e.target.value || undefined}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">— Select —</option>
-                    {masters.designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Site</label>
-                  <select value={form.site_id ?? ""} onChange={e => setForm(p => ({...p, site_id: e.target.value || undefined}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">— Select —</option>
-                    {masters.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Headcount</label>
-                  <input type="number" min={1} value={form.headcount ?? 1} onChange={e => setForm(p => ({...p, headcount: parseInt(e.target.value)}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Priority</label>
-                  <select value={form.priority ?? "normal"} onChange={e => setForm(p => ({...p, priority: e.target.value as Job["priority"]}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="low">Low</option>
-                    <option value="normal">Normal</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Min Salary (₹)</label>
-                  <input type="number" value={form.min_salary ?? ""} onChange={e => setForm(p => ({...p, min_salary: parseFloat(e.target.value) || undefined}))}
-                    placeholder="e.g. 500000"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Max Salary (₹)</label>
-                  <input type="number" value={form.max_salary ?? ""} onChange={e => setForm(p => ({...p, max_salary: parseFloat(e.target.value) || undefined}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Opening Date</label>
-                  <input type="date" value={form.opened_at ?? ""} onChange={e => setForm(p => ({...p, opened_at: e.target.value || undefined}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Target DOJ</label>
-                  <input type="date" value={form.target_doj ?? ""} onChange={e => setForm(p => ({...p, target_doj: e.target.value || undefined}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-              </div>
-
-              {form.job_type === "client" && (
-                <div className="grid grid-cols-2 gap-3 border-t border-gray-100 pt-3">
-                  <div>
-                    <label className="text-xs text-gray-500 font-medium block mb-1">Client Name</label>
-                    <input value={form.client_name ?? ""} onChange={e => setForm(p => ({...p, client_name: e.target.value}))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 font-medium block mb-1">Placement Fee %</label>
-                    <input type="number" value={form.placement_fee_pct ?? ""} onChange={e => setForm(p => ({...p, placement_fee_pct: parseFloat(e.target.value) || undefined}))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-1">Assign Recruiters</label>
-                <div className="flex flex-wrap gap-2">
-                  {masters.recruiters.map(r => {
-                    const selected = (form.recruiter_ids ?? []).includes(r.id);
-                    return (
-                      <button key={r.id} type="button"
-                        onClick={() => setForm(p => ({
-                          ...p,
-                          recruiter_ids: selected
-                            ? (p.recruiter_ids ?? []).filter(id => id !== r.id)
-                            : [...(p.recruiter_ids ?? []), r.id],
-                        }))}
-                        className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all ${
-                          selected ? "bg-brand-500 text-white border-brand-500" : "border-gray-200 text-gray-600 hover:border-brand-300"
-                        }`}>
-                        {r.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 font-medium block mb-1">Description</label>
-                <textarea rows={3} value={form.description ?? ""} onChange={e => setForm(p => ({...p, description: e.target.value || undefined}))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 resize-none" />
-              </div>
-            </div>
+            <JobFormFields f={form} setF={setForm} masters={masters} />
             <div className="flex gap-2 mt-5">
               <button onClick={createJob}
                 className="flex-1 bg-brand-500 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-brand-600">
@@ -512,6 +628,79 @@ export default function JobsPage() {
               <button onClick={() => { setShowModal(false); setForm({}); }}
                 className="flex-1 border border-gray-200 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request Job Modal (hr_manager / hod / recruiter) */}
+      {showRequestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => { setShowRequestModal(false); setRequestForm({}); setSelectedAdminIds([]); setRequestNote(""); }} />
+          <div className="relative bg-white rounded-2xl p-6 w-[560px] max-h-[90vh] overflow-y-auto shadow-2xl z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">Request Job Creation</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Fill in job details and select which admin(s) to notify</p>
+              </div>
+              <button onClick={() => { setShowRequestModal(false); setRequestForm({}); setSelectedAdminIds([]); setRequestNote(""); }}
+                className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+
+            {/* Job details */}
+            <JobFormFields f={requestForm} setF={setRequestForm} masters={masters} ringColor="indigo" />
+
+            {/* Admin picker */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-gray-700">Send request to admin(s) *</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setSelectedAdminIds(adminUsers.map(a => a.id))}
+                    className="text-[10px] text-indigo-600 hover:underline">All</button>
+                  <span className="text-gray-300 text-xs">|</span>
+                  <button type="button" onClick={() => setSelectedAdminIds([])}
+                    className="text-[10px] text-gray-400 hover:underline">None</button>
+                </div>
+              </div>
+              {adminUsers.length === 0 ? (
+                <p className="text-xs text-gray-400 py-2">No admins found.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {adminUsers.map(admin => (
+                    <label key={admin.id}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors text-xs ${
+                        selectedAdminIds.includes(admin.id)
+                          ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                          : "border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200"
+                      }`}>
+                      <input type="checkbox" className="accent-indigo-600"
+                        checked={selectedAdminIds.includes(admin.id)}
+                        onChange={() => toggleAdmin(admin.id)} />
+                      {admin.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Optional note */}
+            <div className="mt-4">
+              <label className="text-xs font-semibold text-gray-700 block mb-1.5">Note for admin (optional)</label>
+              <textarea rows={2} value={requestNote} onChange={e => setRequestNote(e.target.value)}
+                placeholder="Add context or urgency reason…"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => { setShowRequestModal(false); setRequestForm({}); setSelectedAdminIds([]); setRequestNote(""); }}
+                className="flex-1 border border-gray-200 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={submitJobRequest} disabled={submittingRequest || !requestForm.title?.trim() || selectedAdminIds.length === 0}
+                className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                <Send size={14} />
+                {submittingRequest ? "Sending…" : `Send Request${selectedAdminIds.length > 1 ? ` (${selectedAdminIds.length} admins)` : ""}`}
               </button>
             </div>
           </div>
@@ -550,14 +739,6 @@ export default function JobsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-medium block mb-1">Job Platform</label>
-                  <select value={form.job_platform ?? ""} onChange={e => setForm(p => ({...p, job_platform: e.target.value || undefined}))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">-- Select --</option>
-                    {JOB_PLATFORM_OPTIONS.map(platform => <option key={platform} value={platform}>{platform}</option>)}
-                  </select>
-                </div>
-                <div>
                   <label className="text-xs text-gray-500 font-medium block mb-1">Designation</label>
                   <select value={form.designation_id ?? ""} onChange={e => setForm(p => ({...p, designation_id: e.target.value || undefined}))}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500">
@@ -625,25 +806,30 @@ export default function JobsPage() {
               )}
               <div>
                 <label className="text-xs text-gray-500 font-medium block mb-1">Assign Recruiters</label>
-                <div className="flex flex-wrap gap-2">
-                  {masters.recruiters.map(r => {
-                    const selected = (form.recruiter_ids ?? []).includes(r.id);
-                    return (
-                      <button key={r.id} type="button"
-                        onClick={() => setForm(p => ({
-                          ...p,
-                          recruiter_ids: selected
-                            ? (p.recruiter_ids ?? []).filter(id => id !== r.id)
-                            : [...(p.recruiter_ids ?? []), r.id],
-                        }))}
-                        className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all ${
-                          selected ? "bg-brand-500 text-white border-brand-500" : "border-gray-200 text-gray-600 hover:border-brand-300"
-                        }`}>
-                        {r.name}
-                      </button>
-                    );
-                  })}
-                </div>
+                {(form.recruiter_ids ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {(form.recruiter_ids ?? []).map(id => {
+                      const r = masters.recruiters.find(r => r.id === id);
+                      if (!r) return null;
+                      return (
+                        <span key={id} className="inline-flex items-center gap-1 bg-brand-100 text-brand-700 text-xs px-2.5 py-1 rounded-full font-medium">
+                          {r.name}
+                          <button type="button"
+                            onClick={() => setForm(p => ({ ...p, recruiter_ids: (p.recruiter_ids ?? []).filter(i => i !== id) }))}
+                            className="hover:text-brand-900 text-sm leading-none ml-0.5">×</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <select value=""
+                  onChange={e => { if (e.target.value) setForm(p => ({ ...p, recruiter_ids: [...(p.recruiter_ids ?? []), e.target.value] })); }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-400 outline-none focus:ring-2 focus:ring-brand-500">
+                  <option value="">+ Add recruiter...</option>
+                  {masters.recruiters.filter(r => !(form.recruiter_ids ?? []).includes(r.id)).map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium block mb-1">Description</label>
@@ -661,83 +847,6 @@ export default function JobsPage() {
                 Cancel
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Ranked Candidates Modal */}
-      {rankingJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setRankingJob(null)} />
-          <div className="relative bg-white rounded-2xl p-6 w-[720px] max-h-[85vh] overflow-y-auto shadow-2xl z-10">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-bold text-gray-900 text-base">Ranked Candidates</h3>
-                <p className="text-xs text-gray-400 mt-0.5">{rankingJob.title}</p>
-              </div>
-              <button onClick={() => setRankingJob(null)} className="text-gray-400 hover:text-gray-600">
-                <X size={18} />
-              </button>
-            </div>
-            {rankingLoading ? (
-              <div className="text-center py-10 text-gray-400 text-sm">Loading rankings...</div>
-            ) : rankedCandidates.length === 0 ? (
-              <div className="text-center py-10 text-gray-400 text-sm">
-                No scored candidates yet. Parse resumes with this job selected to generate rankings.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {rankedCandidates.map((row, idx) => {
-                  const candidate = row.candidates;
-                  const rankColor = idx === 0
-                    ? "bg-yellow-100 text-yellow-800 border-yellow-200"
-                    : idx === 1
-                      ? "bg-gray-100 text-gray-700 border-gray-200"
-                      : idx === 2
-                        ? "bg-orange-100 text-orange-800 border-orange-200"
-                        : "bg-white text-gray-500 border-gray-200";
-                  return (
-                    <Link
-                      key={`${candidate?.id ?? idx}-${row.scored_at}`}
-                      href={candidate?.id ? `/candidates?candidate=${candidate.id}` : "#"}
-                      className="block border border-gray-200 rounded-xl p-4 hover:border-brand-200 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex items-start gap-3">
-                        <span className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs font-bold flex-shrink-0 ${rankColor}`}>
-                          {idx + 1}
-                        </span>
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-gray-900 truncate">{candidate?.name ?? "Candidate unavailable"}</p>
-                              <p className="text-xs text-gray-400 truncate">{candidate?.current_designation ?? candidate?.email ?? ""}</p>
-                            </div>
-                            <div className="w-40 flex-shrink-0">
-                              <FitScoreBar score={row.fit_score} />
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {(row.fit_breakdown.matched_skills ?? []).map(skill => (
-                              <span key={`m-${skill}`} className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
-                                {skill}
-                              </span>
-                            ))}
-                            {(row.fit_breakdown.missing_skills ?? []).map(skill => (
-                              <span key={`x-${skill}`} className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
-                                {skill}
-                              </span>
-                            ))}
-                          </div>
-                          {row.fit_breakdown.ai_reasoning && (
-                            <p className="text-xs text-gray-500 italic leading-relaxed">{row.fit_breakdown.ai_reasoning}</p>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
           </div>
         </div>
       )}

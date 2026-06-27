@@ -8,7 +8,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (!profile || !["admin", "hr_manager"].includes(profile.role)) {
+  if (!profile || !["admin", "hr_manager", "hod"].includes(profile.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -24,13 +24,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Replace recruiter assignments if provided
   if (Array.isArray(recruiter_ids)) {
-    await supabase.from("job_recruiters").delete().eq("job_id", id);
-    if (recruiter_ids.length) {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: active } = await supabase
+      .from("job_recruiters")
+      .select("id,recruiter_id")
+      .eq("job_id", id)
+      .is("assigned_until", null);
+    const activeRows = active ?? [];
+    const activeIds = activeRows.map((row) => row.recruiter_id);
+    const incomingIds = recruiter_ids as string[];
+    const toClose = activeRows.filter((row) => !incomingIds.includes(row.recruiter_id)).map((row) => row.id);
+    if (toClose.length) {
+      await supabase.from("job_recruiters").update({ assigned_until: today }).in("id", toClose);
+    }
+    const toAdd = incomingIds.filter((rid) => !activeIds.includes(rid));
+    if (toAdd.length) {
       await supabase.from("job_recruiters").insert(
-        recruiter_ids.map((rid: string) => ({
-          job_id: id, recruiter_id: rid, assigned_by: user.id,
+        toAdd.map((rid: string) => ({
+          job_id: id, recruiter_id: rid, assigned_by: user.id, assigned_from: today,
         }))
       );
     }

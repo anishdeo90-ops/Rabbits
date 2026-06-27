@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Pencil, X, Check, UserCheck, UserX } from "lucide-react";
+import { Plus, Pencil, X, Check, UserCheck, UserX, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import type { Profile, Role } from "@/lib/types";
 import { ROLES } from "@/lib/types";
@@ -15,7 +15,7 @@ const ROLE_COLORS: Record<Role, string> = {
 };
 
 interface NewUserForm {
-  name: string; email: string; password: string;
+  name: string; email: string;
   role: Role; department: string;
 }
 
@@ -26,7 +26,7 @@ export default function UsersPage() {
   const [editing, setEditing] = useState<Partial<Profile> | null>(null);
   const [saving, setSaving] = useState(false);
   const [newUser, setNewUser] = useState<NewUserForm>({
-    name: "", email: "", password: "", role: "recruiter", department: "",
+    name: "", email: "", role: "recruiter", department: "",
   });
 
   async function loadUsers() {
@@ -43,8 +43,8 @@ export default function UsersPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!newUser.name || !newUser.email || !newUser.password) {
-      toast.error("Name, email and password are required");
+    if (!newUser.name || !newUser.email) {
+      toast.error("Name and email are required");
       return;
     }
     setSaving(true);
@@ -54,9 +54,9 @@ export default function UsersPage() {
       body: JSON.stringify(newUser),
     });
     if (res.ok) {
-      toast.success("User created & invited");
+      toast.success("User created. They can create their password on the login page.");
       setShowAdd(false);
-      setNewUser({ name: "", email: "", password: "", role: "recruiter", department: "" });
+      setNewUser({ name: "", email: "", role: "recruiter", department: "" });
       loadUsers();
     } else {
       const err = await res.json();
@@ -90,6 +90,18 @@ export default function UsersPage() {
       body: JSON.stringify({ id: user.id, name: user.name, role: user.role, is_active: !user.is_active }),
     });
     if (res.ok) { loadUsers(); }
+  }
+
+  async function handleDelete(user: Profile) {
+    if (!confirm(`Permanently delete "${user.name}" (${user.email})?\n\nThis cannot be undone. If the user has any candidates/jobs/records tied to them, deletion will fail and you should deactivate instead.`)) return;
+    const res = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
+    if (res.ok) {
+      toast.success("User deleted");
+      loadUsers();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast.error(err.error ?? "Failed to delete");
+    }
   }
 
   return (
@@ -192,6 +204,11 @@ export default function UsersPage() {
                           title={user.is_active ? "Deactivate" : "Activate"}>
                           {user.is_active ? <UserX size={15} className="text-red-400" /> : <UserCheck size={15} className="text-green-500" />}
                         </button>
+                        <button onClick={() => handleDelete(user)}
+                          className="p-1 text-gray-400 hover:text-red-600"
+                          title="Delete user">
+                          <Trash2 size={14} />
+                        </button>
                       </>
                     )}
                   </div>
@@ -214,7 +231,6 @@ export default function UsersPage() {
               {[
                 { label: "Full Name", key: "name", type: "text" },
                 { label: "Email Address", key: "email", type: "email" },
-                { label: "Password (temporary)", key: "password", type: "password" },
                 { label: "Department (optional)", key: "department", type: "text" },
               ].map(({ label, key, type }) => (
                 <div key={key}>

@@ -6,7 +6,6 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Never intercept these — let them pass straight through
   if (
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/auth/") ||
@@ -22,7 +21,9 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() { return request.cookies.getAll(); },
+        getAll() {
+          return request.cookies.getAll();
+        },
         setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
@@ -36,8 +37,6 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Use getSession() — reads JWT from cookie locally, no network call.
-  // This is reliable on Vercel edge runtime where getUser() can fail.
   const { data: { session } } = await supabase.auth.getSession();
   const isLoggedIn = !!session;
   const isLoginPage = pathname === "/login";
@@ -56,8 +55,7 @@ export async function middleware(request: NextRequest) {
     const safeNext = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login")
       ? next
       : "/dashboard";
-    const url = new URL(safeNext, request.url);
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL(safeNext, request.url));
   }
 
   return supabaseResponse;

@@ -1,5 +1,16 @@
 import { createAdminClient } from "@/lib/supabase/server";
-import type { AutomationRule, Candidate, Interview } from "@/lib/types";
+
+type AutomationRule = {
+  id: string;
+  delay_hours?: number | null;
+  conditions?: Record<string, unknown> | null;
+};
+type Candidate = { final_status?: string | null };
+type Interview = {
+  id?: string | null;
+  round?: string | null;
+  scheduled_at?: string | null;
+};
 
 const TERMINAL_STAGES = new Set(["Joined", "Rejected/Dropped"]);
 

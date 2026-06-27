@@ -64,6 +64,7 @@ const WRITABLE_CANDIDATE_FIELDS = new Set([
   "job_id",
   "custom_data",
   "parsed_keywords",
+  "referred_by",
 ]);
 
 function pickWritableCandidateFields(input: Record<string, unknown>) {
@@ -133,9 +134,12 @@ export async function GET(req: NextRequest) {
   const search = p.get("search");
   const kwSearch = p.get("kw_search")?.trim() ?? "";
   const designId = p.get("designation_id");
+  const jobId = p.get("job_id");
   const sourceId = p.get("source_id");
   const dateFrom = p.get("date_from");
   const dateTo = p.get("date_to");
+  const pipelineStage = p.get("pipeline_stage");
+  const forwardToId = p.get("forward_to_id");
   const piBy = p.get("pi_taken_by");
   const page = parseInt(p.get("page") ?? "1", 10);
   const limit = parseInt(p.get("limit") ?? "2000", 10);
@@ -172,9 +176,33 @@ export async function GET(req: NextRequest) {
     query = query.eq("final_status", status);
   }
   if (designId) query = query.eq("designation_id", designId);
+  if (jobId) query = query.eq("job_id", jobId);
   if (sourceId) query = query.eq("source_id", sourceId);
   if (dateFrom) query = query.gte("application_date", dateFrom);
   if (dateTo) query = query.lte("application_date", dateTo);
+
+  const stageColumn: Record<string, string> = {
+    tel_int_done: "tel_int_done",
+    gf_sent: "gf_sent",
+    shortlisted_hr: "shortlisted_hr",
+    pi_done: "pi_done",
+    shortlisted_mgmt: "shortlisted_mgmt",
+    appointed: "appointed",
+    joined: "joined",
+  };
+  if (pipelineStage && stageColumn[pipelineStage]) query = query.eq(stageColumn[pipelineStage], 1);
+
+  if (forwardToId) {
+    const { data: forwardRows, error: forwardError } = await supabase
+      .from("candidate_forwards")
+      .select("candidate_id")
+      .eq("to_user_id", forwardToId)
+      .contains("unlocked_tabs", ["pi"]);
+    if (forwardError) return NextResponse.json({ error: forwardError.message }, { status: 500 });
+    const ids = (forwardRows ?? []).map((row) => row.candidate_id).filter(Boolean);
+    if (ids.length === 0) return NextResponse.json({ data: [], count: 0 });
+    query = query.in("id", ids);
+  }
 
   let kwTokens: string[] = [];
   let kwPhrase = "";

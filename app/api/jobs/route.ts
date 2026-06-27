@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
       designation:masters!jobs_designation_id_fkey(id, name),
       site:masters!jobs_site_id_fkey(id, name),
       recruiters:job_recruiters(
-        id, recruiter_id, assigned_at,
+        id, recruiter_id, assigned_at, assigned_from, assigned_until,
         profile:profiles!job_recruiters_recruiter_id_fkey(id, name, email, avatar_url)
       )
     `)
@@ -33,6 +33,18 @@ export async function GET(req: NextRequest) {
   if (siteId)    query = query.eq("site_id", siteId);
   if (designId)  query = query.eq("designation_id", designId);
   if (hodId)     query = query.eq("hod_id", hodId);
+
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (profile?.role === "recruiter") {
+    const { data: assignedRows } = await supabase
+      .from("job_recruiters")
+      .select("job_id")
+      .eq("recruiter_id", user.id);
+    const assignedIds = (assignedRows ?? []).map((row) => row.job_id).filter(Boolean);
+    const parts = [`created_by.eq.${user.id}`];
+    if (assignedIds.length > 0) parts.push(`id.in.(${assignedIds.join(",")})`);
+    query = query.or(parts.join(","));
+  }
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -84,7 +96,7 @@ export async function POST(req: NextRequest) {
   if (recruiter_ids?.length) {
     await supabase.from("job_recruiters").insert(
       recruiter_ids.map((rid: string) => ({
-        job_id: job.id, recruiter_id: rid, assigned_by: user.id,
+        job_id: job.id, recruiter_id: rid, assigned_by: user.id, assigned_from: new Date().toISOString().slice(0, 10),
       }))
     );
   }

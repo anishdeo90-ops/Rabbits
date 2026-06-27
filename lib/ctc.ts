@@ -1,5 +1,5 @@
 // ── CTC Computation Engine ─────────────────────────────────────────────────────
-// HireRabbits ATS — CTC Structure Definitions & Calculator
+// HireRabbits — CTC Structure Definitions & Calculator
 // Formats: NGCTC-1 (VJ1 Executive) … NGCTC-5 (VJ3 Unskilled)
 
 export type CTCTemplateId = 'NGCTC-1' | 'NGCTC-2' | 'NGCTC-3' | 'NGCTC-4' | 'NGCTC-5' | string;
@@ -148,8 +148,8 @@ export function generateOfferLetterHTML(params: {
 <meta charset="utf-8">
 <style>
   body { font-family: Arial, sans-serif; font-size: 13px; line-height: 1.75; color: #1a1a1a; margin: 0; padding: 48px 64px; }
-  .header { text-align: center; border-bottom: 3px solid #FF2D87; padding-bottom: 18px; margin-bottom: 32px; }
-  .logo-text { font-size: 26px; font-weight: 900; color: #FF2D87; letter-spacing: 1px; }
+  .header { text-align: center; border-bottom: 3px solid #e67e22; padding-bottom: 18px; margin-bottom: 32px; }
+  .logo-text { font-size: 26px; font-weight: 900; color: #e67e22; letter-spacing: 1px; }
   .logo-sub  { font-size: 12px; color: #888; margin-top: 2px; }
   .meta      { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; color: #555; }
   h2         { text-align: center; font-size: 15px; text-decoration: underline; letter-spacing: 0.5px; margin: 24px 0 20px; }
@@ -165,7 +165,7 @@ export function generateOfferLetterHTML(params: {
 <body>
 
 <div class="header">
-  <div class="logo-text">HIRERABBITS</div>
+  <div class="logo-text">NAVINGROUP</div>
   <div class="logo-sub">Human Resources Department</div>
 </div>
 

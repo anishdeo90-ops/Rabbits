@@ -15,7 +15,6 @@ const DB_COLUMNS = [
   { value: "priority",        label: "Priority (low/normal/high/urgent)" },
   { value: "status",          label: "Status (open/on_hold/closed/filled)" },
   { value: "job_type",        label: "Type (internal/client)" },
-  { value: "job_platform",    label: "Job Platform (LinkedIn/Indeed/etc.)" },
   { value: "min_salary",      label: "Min Salary (₹)" },
   { value: "max_salary",      label: "Max Salary (₹)" },
   { value: "salary_range",    label: "Salary Range (e.g. 50000-80000)" },
@@ -34,7 +33,6 @@ const AUTO_MAP: Record<string, string> = {
   "priority": "priority", "urgency": "priority", "seniority": "priority", "seniority level": "priority",
   "status": "status", "job status": "status",
   "type": "job_type", "job type": "job_type", "employment type": "job_type",
-  "job platform": "job_platform", "platform": "job_platform", "posted on": "job_platform", "source platform": "job_platform",
   "min salary": "min_salary", "min ctc": "min_salary", "salary min": "min_salary",
   "max salary": "max_salary", "max ctc": "max_salary", "salary max": "max_salary",
   "salary range": "salary_range",
@@ -51,11 +49,11 @@ interface ImportResult { row: number; status: "created" | "error"; title?: strin
 
 function downloadSample() {
   const wb = XLSX.utils.book_new();
-  const headers = ["Job Title", "Designation", "Location", "Headcount", "Priority", "Status", "Type", "Job Platform", "Min Salary", "Max Salary", "Opening Date", "Target DOJ", "Job Description", "Requirements", "Client Name"];
+  const headers = ["Job Title", "Designation", "Location", "Headcount", "Priority", "Status", "Type", "Min Salary", "Max Salary", "Opening Date", "Target DOJ", "Job Description", "Requirements", "Client Name"];
   const sample = [
-    ["Electrical Engineer", "Electrical Engineer", "Mumbai", 2, "high", "open", "internal", "LinkedIn", 50000, 80000, "2026-04-20", "2026-05-15", "We are looking for an experienced Electrical Engineer to join our Mumbai operations team.", "BE/BTech Electrical, 3+ years experience", ""],
-    ["HR Manager", "HR Manager", "Delhi", 1, "normal", "open", "internal", "Indeed", 60000, 90000, "2026-04-20", "", "Manage end-to-end HR operations for the Delhi office.", "MBA HR, 5+ years", ""],
-    ["Sales Executive", "Sales Executive", "Pune", 3, "urgent", "open", "client", "Naukri", 30000, 45000, "2026-04-18", "2026-05-01", "Drive B2B sales for client's manufacturing products.", "Graduate, 1-3 years field sales experience", "ABC Pvt Ltd"],
+    ["Electrical Engineer", "Electrical Engineer", "Mumbai", 2, "high", "open", "internal", 50000, 80000, "2026-04-20", "2026-05-15", "We are looking for an experienced Electrical Engineer to join our Mumbai operations team.", "BE/BTech Electrical, 3+ years experience", ""],
+    ["HR Manager", "HR Manager", "Delhi", 1, "normal", "open", "internal", 60000, 90000, "2026-04-20", "", "Manage end-to-end HR operations for the Delhi office.", "MBA HR, 5+ years", ""],
+    ["Sales Executive", "Sales Executive", "Pune", 3, "urgent", "open", "client", 30000, 45000, "2026-04-18", "2026-05-01", "Drive B2B sales for client's manufacturing products.", "Graduate, 1-3 years field sales experience", "ABC Pvt Ltd"],
   ];
   const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
   ws["!cols"] = headers.map((h, i) => ({ wch: i === 11 || i === 12 ? 40 : Math.max(h.length, 14) }));

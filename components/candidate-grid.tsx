@@ -29,20 +29,32 @@ interface Props {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  "Appointed/Offered":      "bg-green-100 text-green-800",
-  "Joined":                 "bg-green-200 text-green-900",
-  "Rejected/Dropped":       "bg-red-100 text-red-800",
-  "On Hold":                "bg-yellow-100 text-yellow-800",
-  "Offered But Not Joined": "bg-brand-100 text-brand-800",
-  "Shortlisted by HR":      "bg-blue-100 text-blue-800",
-  "Shortlisted by Mgmt":    "bg-purple-100 text-purple-800",
-  "Tel Int Done":           "bg-cyan-100 text-cyan-800",
-  "Tel Int Scheduled":      "bg-sky-100 text-sky-800",
-  "PI Done":                "bg-indigo-100 text-indigo-800",
-  "PI Scheduled":           "bg-violet-100 text-violet-800",
-  "GF Issued":              "bg-brand-100 text-brand-700",
-  "GF Received":            "bg-amber-100 text-amber-800",
-  "Sourced":                "bg-gray-100 text-gray-600",
+  "Sourced":                       "bg-gray-100 text-gray-600",
+  "Applied":                       "bg-slate-100 text-slate-600",
+  "Recruiter Screening Done":      "bg-blue-100 text-blue-700",
+  "HR Manager Screening Done":     "bg-cyan-100 text-cyan-700",
+  "Dept Mgr Screening Done":       "bg-violet-100 text-violet-700",
+  "Mgmt Approved for PI Call":     "bg-indigo-100 text-indigo-700",
+  "Called for PI":                 "bg-purple-100 text-purple-700",
+  "Did Not Attend Interview":      "bg-red-50 text-red-400",
+  "PI 1 Done":                     "bg-indigo-100 text-indigo-700",
+  "PI 2 Done":                     "bg-purple-100 text-purple-700",
+  "GF Issued":                     "bg-amber-100 text-amber-700",
+  "Shortlisted":                   "bg-teal-100 text-teal-700",
+  "Shortlisted But Not Offered":   "bg-teal-50 text-teal-600",
+  "Hold":                          "bg-yellow-100 text-yellow-700",
+  "Suitable for Future":           "bg-blue-50 text-blue-600",
+  "Offered But Did Not Join":      "bg-red-50 text-red-600",
+  "Offered":                       "bg-brand-100 text-brand-700",
+  "Not Interested":                "bg-red-50 text-red-500",
+  "Rejected":                      "bg-red-100 text-red-600",
+  "Appointed":                     "bg-brand-200 text-brand-800",
+  "Joined":                        "bg-green-100 text-green-700",
+  "Joined & Left":                 "bg-gray-200 text-gray-500",
+  "Active Employee":               "bg-green-200 text-green-800",
+  "Not Yet Processed":             "bg-gray-50 text-gray-500",
+  "Other":                         "bg-gray-100 text-gray-500",
+  "Dropped By Candidate":          "bg-red-100 text-red-500",
 };
 
 // Core fields that CANNOT be edited by recruiters after initial save
@@ -59,10 +71,12 @@ function StatusBadge({ value }: { value: string }) {
 const YES_NO_VALS  = ["Y", "N", ""];
 const YES_NO_WORDS = ["Yes", "No", ""];
 const FINAL_STATUSES = [
-  "Sourced","Tel Int Scheduled","Tel Int Done","Google Form Sent",
-  "Shortlisted by HR","PI Scheduled","PI Done","Shortlisted by Mgmt",
-  "GF Issued","GF Received","Appointed/Offered","Joined",
-  "Rejected/Dropped","On Hold","Offered But Not Joined",
+  "Sourced","Applied","Recruiter Screening Done","HR Manager Screening Done",
+  "Dept Mgr Screening Done","Mgmt Approved for PI Call","Called for PI",
+  "Did Not Attend Interview","PI 1 Done","PI 2 Done","GF Issued","Shortlisted",
+  "Shortlisted But Not Offered","Hold","Suitable for Future","Offered But Did Not Join",
+  "Offered","Not Interested","Rejected","Appointed","Joined","Joined & Left",
+  "Active Employee","Not Yet Processed","Other","Dropped By Candidate",
 ];
 
 export default function CandidateGrid({ profile, sites, designations, sources, recruiters, filters, onTotalCount }: Props) {
@@ -193,7 +207,7 @@ export default function CandidateGrid({ profile, sites, designations, sources, r
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dateCol = (field: string, header: string, opts: Partial<ColDef> = {}): ColDef<any> => ({
-      field, headerName: header, width: 130, editable: e,
+      field, headerName: header, width: 110, editable: e,
       cellEditor: "agDateCellEditor",
       valueFormatter: p => formatDate(p.value),
       filter: "agDateColumnFilter",
@@ -202,7 +216,7 @@ export default function CandidateGrid({ profile, sites, designations, sources, r
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const selectCol = (field: string, header: string, values: string[], opts: Partial<ColDef> = {}): ColDef<any> => ({
-      field, headerName: header, width: 130, editable: e,
+      field, headerName: header, width: 100, editable: e,
       cellEditor: "agSelectCellEditor",
       cellEditorParams: { values },
       filter: true,
@@ -211,26 +225,26 @@ export default function CandidateGrid({ profile, sites, designations, sources, r
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const textCol = (field: string, header: string, opts: Partial<ColDef> = {}): ColDef<any> => ({
-      field, headerName: header, width: 160, editable: e, filter: true, ...opts,
+      field, headerName: header, width: 140, editable: e, filter: true, ...opts,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const memoCol = (field: string, header: string, opts: Partial<ColDef> = {}): ColDef<any> => ({
-      field, headerName: header, width: 220, editable: e,
+      field, headerName: header, width: 200, editable: e,
       cellEditor: "agLargeTextCellEditor",
       cellEditorPopup: true,
       ...opts,
     });
 
     return [
-      // ── Frozen left ───────────────────────────────────────
+      // ── Identity (pinned left) ────────────────────────────
       {
-        field: "sr_no", headerName: "#", width: 60, pinned: "left",
+        field: "sr_no", headerName: "#", width: 55, pinned: "left",
         editable: false, sortable: true, filter: false,
         cellStyle: { color: "#94a3b8", fontWeight: 600 },
       },
       {
-        headerName: "",  width: 36, pinned: "left", editable: false,
+        headerName: "", width: 36, pinned: "left", editable: false,
         sortable: false, filter: false, resizable: false,
         cellRenderer: (p: ICellRendererParams) => p.data?.id ? (
           <button
@@ -243,10 +257,61 @@ export default function CandidateGrid({ profile, sites, designations, sources, r
         ) : null,
       },
       {
-        field: "name", headerName: "Candidate Name", width: 200, pinned: "left",
+        field: "name", headerName: "Candidate Name", width: 190, pinned: "left",
         editable: e, sortable: true, filter: true,
         cellStyle: { fontWeight: 600, color: "#0f172a" },
         cellClass: p => !p.data?.id ? "bg-yellow-50" : "",
+      },
+
+      // ── Contact ───────────────────────────────────────────
+      textCol("mobile", "Mobile", { width: 125 }),
+      textCol("email",  "Email",  { width: 190 }),
+
+      // ── Current Profile ───────────────────────────────────
+      textCol("current_designation", "Current Designation",  { width: 165 }),
+      textCol("current_location",    "Current Location",     { width: 130 }),
+      {
+        field: "present_salary", headerName: "Present Salary (₹)", width: 120,
+        editable: e, type: "numericColumn",
+        cellEditor: "agNumberCellEditor",
+        valueFormatter: p => formatCurrency(p.value),
+        filter: "agNumberColumnFilter",
+      },
+      {
+        field: "expected_salary", headerName: "Expected Salary (₹)", width: 120,
+        editable: e, type: "numericColumn",
+        cellEditor: "agNumberCellEditor",
+        valueFormatter: p => formatCurrency(p.value),
+        filter: "agNumberColumnFilter",
+      },
+
+      // ── Applied Role ──────────────────────────────────────
+      {
+        field: "designation_id", headerName: "Designation (Recruited For)", width: 155, editable: e,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: { values: designations.map(d => d.id) },
+        valueFormatter: p => desigMap[p.value] ?? "",
+        filter: true,
+      },
+      {
+        field: "site_id", headerName: "Site / Location", width: 120, editable: e,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: { values: sites.map(s => s.id) },
+        valueFormatter: p => siteMap[p.value] ?? "",
+        filter: true,
+      },
+      {
+        field: "source_id", headerName: "Source", width: 110, editable: e,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: { values: sources.map(s => s.id) },
+        valueFormatter: p => sourceMap[p.value] ?? "",
+        filter: true,
+      },
+      {
+        field: "naukri_link", headerName: "Profile Link", width: 90, editable: e,
+        cellRenderer: (p: ICellRendererParams) => p.value
+          ? <a href={p.value} target="_blank" rel="noreferrer" className="text-blue-500 underline text-xs">🔗 Link</a>
+          : null,
       },
 
       // ── Attribution ───────────────────────────────────────
@@ -259,138 +324,86 @@ export default function CandidateGrid({ profile, sites, designations, sources, r
         valueFormatter: p => recruiterMap[p.value] ?? p.value ?? "",
         filter: true,
       },
-      textCol("month", "Month", { width: 140 }),
-      dateCol("application_date", "App. Date"),
-      {
-        field: "naukri_link", headerName: "Profile Link", width: 100, editable: e,
-        cellRenderer: (p: ICellRendererParams) => p.value
-          ? <a href={p.value} target="_blank" rel="noreferrer" className="text-blue-500 underline text-xs">🔗 Link</a>
-          : null,
-      },
+      textCol("month",            "Month",            { width: 110 }),
+      dateCol("application_date", "Application Date", { width: 115 }),
 
-      // ── Current details ───────────────────────────────────
-      textCol("current_designation", "Current Designation", { width: 180 }),
-      textCol("current_location", "Current Location"),
-      {
-        field: "present_salary", headerName: "Present Salary (₹)", width: 150,
-        editable: e, type: "numericColumn",
-        cellEditor: "agNumberCellEditor",
-        valueFormatter: p => formatCurrency(p.value),
-        filter: "agNumberColumnFilter",
-      },
+      // ── Stage 1 · Screening ───────────────────────────────
+      selectCol("google_form_sent",     "GF Sent",      YES_NO_VALS,  { width: 80  }),
+      selectCol("google_form_received", "GF Received",  YES_NO_VALS,  { width: 95  }),
+      selectCol("processed_by_hr",      "Processed HR", YES_NO_WORDS, { width: 100 }),
+      selectCol("shortlist_by_hr",      "Shortlist HR", YES_NO_WORDS, { width: 100 }),
 
-      // ── Applied role ──────────────────────────────────────
-      {
-        field: "designation_id", headerName: "Applied For", width: 180, editable: e,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: { values: designations.map(d => d.id) },
-        valueFormatter: p => desigMap[p.value] ?? "",
-        filter: true,
-      },
-      {
-        field: "site_id", headerName: "Site", width: 120, editable: e,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: { values: sites.map(s => s.id) },
-        valueFormatter: p => siteMap[p.value] ?? "",
-        filter: true,
-      },
-      {
-        field: "source_id", headerName: "Source", width: 120, editable: e,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: { values: sources.map(s => s.id) },
-        valueFormatter: p => sourceMap[p.value] ?? "",
-        filter: true,
-      },
-      {
-        field: "expected_salary", headerName: "Expected Salary (₹)", width: 160,
-        editable: e, type: "numericColumn",
-        cellEditor: "agNumberCellEditor",
-        valueFormatter: p => formatCurrency(p.value),
-        filter: "agNumberColumnFilter",
-      },
-      textCol("suitable_other_position", "Suitable Other Position", { width: 190 }),
+      // ── Stage 2 · Telephonic Interview ────────────────────
+      dateCol("tel_int_date",    "Tel Int Date",         { width: 110 }),
+      memoCol("tel_int_remarks", "Tel Int Remarks",      { width: 200 }),
+      selectCol("shortlisted_for_pi", "Shortlisted for PI", YES_NO_WORDS, { width: 120 }),
 
-      // ── Contact (locked after save for recruiters) ────────
-      textCol("mobile", "Mobile", { width: 130 }),
-      textCol("email", "Email", { width: 190 }),
-
-      // ── Stage 1: Screening ────────────────────────────────
-      selectCol("google_form_sent",     "GF Sent",       YES_NO_VALS,  { width: 90 }),
-      selectCol("google_form_received", "GF Received",   YES_NO_VALS,  { width: 110 }),
-      selectCol("processed_by_hr",      "Processed HR",  YES_NO_WORDS, { width: 110 }),
-      selectCol("shortlist_by_hr",      "Shortlist HR",  YES_NO_WORDS, { width: 110 }),
-
-      // ── Stage 2: Telephonic Interview ─────────────────────
-      dateCol("tel_int_date", "Tel Int Date"),
-      memoCol("tel_int_remarks", "Tel Int Remarks"),
-      memoCol("hr_manager_remarks", "HR Mgr Remarks", {
-        editable: isManager,
+      // ── Pre-PI Notes ──────────────────────────────────────
+      memoCol("hr_manager_remarks",    "HR Manager Remarks",    {
+        width: 200, editable: isManager,
         cellStyle: { background: isManager ? "transparent" : "#f8fafc" },
       }),
-      memoCol("remarks_before_pi", "Remarks Before PI"),
-      memoCol("mgmt_remarks_before_pi", "Mgmt Remarks (Pre-PI)", {
-        editable: isManager,
+      memoCol("remarks_before_pi",      "Remarks Before PI",    { width: 200 }),
+      memoCol("mgmt_remarks_before_pi", "Mgmt Remarks (Pre-PI)",{ width: 200, editable: isManager }),
+
+      // ── Stage 3 · PI Round 1 ──────────────────────────────
+      dateCol("pi1_date",     "PI 1 Date",    { width: 110 }),
+      textCol("pi1_taken_by", "PI 1 Taken By",{ width: 130 }),
+      memoCol("pi1_remarks",  "PI 1 Remarks", { width: 200 }),
+
+      // ── Stage 4 · PI Round 2 ──────────────────────────────
+      dateCol("pi2_date",     "PI 2 Date",    { width: 110 }),
+      textCol("pi2_taken_by", "PI 2 Taken By",{ width: 130 }),
+      memoCol("pi2_remarks",  "PI 2 Remarks", { width: 200 }),
+
+      // ── Stage 5 · PI Round 3 ──────────────────────────────
+      dateCol("pi3_date",     "PI 3 Date",    { width: 110 }),
+      textCol("pi3_taken_by", "PI 3 Taken By",{ width: 130 }),
+      memoCol("pi3_remarks",  "PI 3 Remarks", { width: 200 }),
+
+      // ── Stage 6 · Management Sign-off ─────────────────────
+      selectCol("shortlisted_by_mgmt", "Shortlisted by Mgmt", YES_NO_WORDS, {
+        width: 130, editable: isManager,
       }),
-      selectCol("shortlisted_for_pi", "Shortlisted for PI", YES_NO_WORDS, { width: 145 }),
+      selectCol("gf_issued",         "GF Issued",       YES_NO_VALS, { width: 85  }),
+      dateCol("gf_issue_date",       "GF Issue Date",   { width: 110 }),
+      dateCol("gf_received_date",    "GF Received Date",{ width: 120 }),
+      selectCol("gf_verified",       "GF Verified",     YES_NO_VALS, { width: 90  }),
+      memoCol("gf_verification_report", "GF Verif. Report", { width: 200 }),
 
-      // ── Stage 3: PI 1 ────────────────────────────────────
-      dateCol("pi1_date",     "PI 1 Date"),
-      textCol("pi1_taken_by", "PI 1 By"),
-      memoCol("pi1_remarks",  "PI 1 Remarks"),
+      // ── Stage 7 · Address Verification ────────────────────
+      dateCol("addr_verification_shared",   "Addr. Verif. Shared",   { width: 120 }),
+      dateCol("addr_verification_received", "Addr. Verif. Received", { width: 125 }),
 
-      // ── Stage 4: PI 2 ────────────────────────────────────
-      dateCol("pi2_date",     "PI 2 Date"),
-      textCol("pi2_taken_by", "PI 2 By"),
-      memoCol("pi2_remarks",  "PI 2 Remarks"),
-
-      // ── Stage 5: PI 3 (if needed) ────────────────────────
-      dateCol("pi3_date",     "PI 3 Date"),
-      textCol("pi3_taken_by", "PI 3 By"),
-      memoCol("pi3_remarks",  "PI 3 Remarks"),
-
-      // ── Stage 6: Guarantee Form ───────────────────────────
-      selectCol("gf_issued",          "GF Issued",          YES_NO_VALS,  { width: 90 }),
-      selectCol("shortlisted_by_mgmt","Shortlisted Mgmt",   YES_NO_WORDS, {
-        width: 150,
-        editable: isManager,
-      }),
-      dateCol("gf_issue_date",    "GF Issue Date"),
-      dateCol("gf_received_date", "GF Received Date"),
-      selectCol("gf_verified",    "GF Verified", YES_NO_VALS, { width: 100 }),
-      memoCol("gf_verification_report", "GF Verif. Report"),
-
-      // ── Stage 7: Address Verification ─────────────────────
-      dateCol("addr_verification_shared",   "Addr Verif. Shared"),
-      dateCol("addr_verification_received", "Addr Verif. Received"),
-
-      // ── Offer & Final ─────────────────────────────────────
+      // ── Offer & Closing ───────────────────────────────────
       {
-        field: "offered_salary", headerName: "Offered Salary (₹)", width: 160,
+        field: "offered_salary", headerName: "Offered Salary (₹)", width: 130,
         editable: isManager, type: "numericColumn",
         cellEditor: "agNumberCellEditor",
         valueFormatter: p => formatCurrency(p.value),
         filter: "agNumberColumnFilter",
         cellStyle: { fontWeight: 600, color: "#15803d" },
       },
+      textCol("suitable_other_position", "Suitable for Other Position", { width: 165 }),
+      memoCol("remarks",      "Remarks",      { width: 200 }),
+      textCol("final_action", "Final Action", { width: 130, editable: isManager }),
+      textCol("file_no",      "File No.",     { width: 85, editable: isManager }),
+      selectCol("hard_copy",  "Hard Copy",    YES_NO_VALS, { width: 90 }),
+
+      // ── Pinned Right ──────────────────────────────────────
       {
-        field: "final_status", headerName: "Final Status", width: 185,
+        field: "final_status", headerName: "Final Status", width: 175,
         pinned: "right", editable: e,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: { values: FINAL_STATUSES },
         cellRenderer: (p: ICellRendererParams) => p.value ? <StatusBadge value={p.value} /> : null,
         filter: true,
       },
-      dateCol("doj", "Date of Joining", { pinned: "right", width: 130 }),
-
-      // ── Misc ──────────────────────────────────────────────
-      memoCol("remarks", "Remarks"),
-      textCol("final_action", "Final Action", { editable: isManager }),
-      textCol("file_no", "File No", { width: 90, editable: isManager }),
-      selectCol("hard_copy", "Hard Copy", YES_NO_VALS, { width: 90 }),
+      dateCol("doj", "Date of Joining", { pinned: "right", width: 115 }),
 
       // ── Admin: delete ─────────────────────────────────────
       ...(isAdmin ? [{
-        headerName: "", width: 50, pinned: "right" as const,
+        headerName: "", width: 46, pinned: "right" as const,
         editable: false, sortable: false, filter: false, resizable: false,
         cellRenderer: (p: ICellRendererParams) =>
           p.data?.id ? (
@@ -451,8 +464,10 @@ export default function CandidateGrid({ profile, sites, designations, sources, r
             resizable: true,
             sortable: true,
             filter: true,
-            minWidth: 80,
+            minWidth: 70,
             editable: false,
+            wrapHeaderText: true,
+            autoHeaderHeight: true,
           }}
           onCellValueChanged={onCellValueChanged}
           onCellEditingStarted={onCellEditingStarted}
@@ -474,7 +489,7 @@ export default function CandidateGrid({ profile, sites, designations, sources, r
             if (!e.data?.id) saveNewRow(e.data);
           }}
           domLayout="normal"
-          onGridReady={(e: GridReadyEvent) => e.api.sizeColumnsToFit()}
+          onGridReady={(e: GridReadyEvent) => e.api.autoSizeColumn("name", false)}
         />
       </div>
 

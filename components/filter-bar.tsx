@@ -24,10 +24,12 @@ const EMPTY: CandidateFilters = {
 };
 
 const STATUSES = [
-  "Sourced","Tel Int Scheduled","Tel Int Done","Google Form Sent",
-  "Shortlisted by HR","PI Scheduled","PI Done","Shortlisted by Mgmt",
-  "GF Issued","GF Received","Appointed/Offered","Joined",
-  "Rejected/Dropped","On Hold","Offered But Not Joined",
+  "Sourced","Applied","Recruiter Screening Done","HR Manager Screening Done",
+  "Dept Mgr Screening Done","Mgmt Approved for PI Call","Called for PI",
+  "Did Not Attend Interview","PI 1 Done","PI 2 Done","GF Issued","Shortlisted",
+  "Shortlisted But Not Offered","Hold","Suitable for Future","Offered But Did Not Join",
+  "Offered","Not Interested","Rejected","Appointed","Joined","Joined & Left",
+  "Active Employee","Not Yet Processed","Other","Dropped By Candidate",
 ];
 
 const MONTHS = [

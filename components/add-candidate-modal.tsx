@@ -51,13 +51,18 @@ export default function AddCandidateModal({ profile, sites, designations, source
   }
 
   async function checkDuplicates(mobile: string) {
-    if (mobile.trim().length < 7) return;
+    let digits = mobile.replace(/\D/g, "");
+    if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+    if (digits.length === 11 && digits.startsWith("0"))  digits = digits.slice(1);
+    if (digits.length < 7) return;
     setDupLoading(true);
     try {
-      const res = await fetch(`/api/candidates/duplicates?mobile=${encodeURIComponent(mobile.trim())}&limit=5`);
+      const res = await fetch(`/api/candidates?search=${encodeURIComponent(digits)}&limit=10`);
       if (!res.ok) return;
       const j = await res.json();
-      const matches: DupCandidate[] = j.data ?? [];
+      const matches: DupCandidate[] = (j.data ?? []).filter((c: DupCandidate) =>
+        c.mobile?.replace(/\D/g, "") === digits
+      );
       if (matches.length > 0) {
         setDuplicates(matches);
         setPendingDupId(matches[0].id);

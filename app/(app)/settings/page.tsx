@@ -44,10 +44,12 @@ const SECTIONS: SectionDef[] = [
 
 const DROPDOWN_TYPES = ["designation", "source", "site", "status"] as const;
 const PIPELINE_STATUSES = [
-  "Sourced", "Tel Int Scheduled", "Tel Int Done", "Google Form Sent",
-  "Shortlisted by HR", "PI Scheduled", "PI Done", "Shortlisted by Mgmt",
-  "GF Issued", "GF Received", "Appointed/Offered", "Joined",
-  "Rejected/Dropped", "On Hold", "Offered But Not Joined",
+  "Sourced","Applied","Recruiter Screening Done","HR Manager Screening Done",
+  "Dept Mgr Screening Done","Mgmt Approved for PI Call","Called for PI",
+  "Did Not Attend Interview","PI 1 Done","PI 2 Done","GF Issued","Shortlisted",
+  "Shortlisted But Not Offered","Hold","Suitable for Future","Offered But Did Not Join",
+  "Offered","Not Interested","Rejected","Appointed","Joined","Joined & Left",
+  "Active Employee","Not Yet Processed","Other","Dropped By Candidate",
 ];
 
 export default function SettingsPage() {
@@ -59,6 +61,7 @@ export default function SettingsPage() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [showAddUser, setShowAddUser] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
+  const [editUserForm, setEditUserForm] = useState({ name: "", role: "recruiter" });
   const [newUser, setNewUser] = useState({ name: "", email: "", role: "recruiter", department: "", is_external_recruiter: false });
 
   // Masters
@@ -178,7 +181,7 @@ export default function SettingsPage() {
       setShowAddUser(false);
       setNewUser({ name: "", email: "", role: "recruiter", department: "", is_external_recruiter: false });
       fetchUsers();
-      toast.success("User added — they can now log in");
+      toast.success("User added. They can create their password on the login page.");
     } else { const j = await res.json(); toast.error(j.error ?? "Failed to add user"); }
   }
 
@@ -187,7 +190,8 @@ export default function SettingsPage() {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
     });
-    if (res.ok) { setEditingUser(null); fetchUsers(); }
+    if (res.ok) { setEditingUser(null); fetchUsers(); toast.success("User updated"); }
+    else { const j = await res.json().catch(() => ({})); toast.error(j.error ?? "Failed to update user"); }
   }
 
   async function addMaster() {
@@ -279,8 +283,14 @@ export default function SettingsPage() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
-    if (res.ok) toast.success("Password reset email sent");
-    else toast.error("Failed to send reset email");
+    if (res.ok) {
+      const { password } = await res.json();
+      try { await navigator.clipboard.writeText(password); } catch {}
+      toast.success(`New password: ${password} (copied to clipboard)`, { duration: 10000 });
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast.error(err.error ?? "Failed to reset password");
+    }
   }
 
   async function triggerBackup() {
@@ -442,7 +452,7 @@ export default function SettingsPage() {
                       <div className="flex gap-1.5">
                         <button onClick={() => sendPasswordReset(u.email)} title="Send password reset"
                           className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50 text-gray-500">Reset PW</button>
-                        <button onClick={() => setEditingUser(u)}
+                        <button onClick={() => { setEditingUser(u); setEditUserForm({ name: u.name, role: u.role }); }}
                           className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50 text-gray-500"><Edit2 size={11}/></button>
                         <button onClick={() => updateUser(u.id, { is_active: !u.is_active })}
                           className={`text-xs border px-2 py-1 rounded ${u.is_active ? "border-red-200 text-red-500 hover:bg-red-50" : "border-green-200 text-green-600 hover:bg-green-50"}`}>
@@ -458,8 +468,8 @@ export default function SettingsPage() {
               {showAddUser && (
                 <Modal title="Invite New User" onClose={() => setShowAddUser(false)}>
                   <div className="space-y-3">
-                    <Field label="Full Name"><input value={newUser.name} onChange={e => setNewUser(p=>({...p,name:e.target.value}))} className={inp} /></Field>
-                    <Field label="Email Address"><input type="email" value={newUser.email} onChange={e => setNewUser(p=>({...p,email:e.target.value}))} className={inp} /></Field>
+                    <Field label="Full Name *"><input value={newUser.name} onChange={e => setNewUser(p=>({...p,name:e.target.value}))} placeholder="e.g. Priya Sharma" className={inp} /></Field>
+                    <Field label="Email Address *"><input type="email" value={newUser.email} onChange={e => setNewUser(p=>({...p,email:e.target.value}))} placeholder="priya@company.com" className={inp} /></Field>
                     <Field label="Role">
                       <select value={newUser.role} onChange={e => setNewUser(p=>({...p,role:e.target.value}))} className={inp}>
                         <option value="recruiter">Recruiter</option>
@@ -468,9 +478,10 @@ export default function SettingsPage() {
                         <option value="admin">Admin</option>
                       </select>
                     </Field>
-                    <Field label="Department (optional)"><input value={newUser.department} onChange={e => setNewUser(p=>({...p,department:e.target.value}))} className={inp} /></Field>
-                    <div className="flex gap-2 pt-2">
-                      <button onClick={addUser} className={btnPrimary}>Add User</button>
+                    <Field label="Department (optional)"><input value={newUser.department} onChange={e => setNewUser(p=>({...p,department:e.target.value}))} placeholder="e.g. Engineering" className={inp} /></Field>
+                    <p className="text-xs text-gray-400">The user will create their own password from the login page.</p>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={addUser} disabled={!newUser.name||!newUser.email} className={btnPrimary + " disabled:opacity-50"}>Create User</button>
                       <button onClick={() => setShowAddUser(false)} className={btnSecondary}>Cancel</button>
                     </div>
                   </div>
@@ -479,9 +490,11 @@ export default function SettingsPage() {
               {editingUser && (
                 <Modal title={`Edit — ${editingUser.name}`} onClose={() => setEditingUser(null)}>
                   <div className="space-y-3">
-                    <Field label="Full Name"><input defaultValue={editingUser.name} id="eu-name" className={inp} /></Field>
+                    <Field label="Full Name">
+                      <input value={editUserForm.name} onChange={e => setEditUserForm(p => ({ ...p, name: e.target.value }))} className={inp} />
+                    </Field>
                     <Field label="Role">
-                      <select defaultValue={editingUser.role} id="eu-role" className={inp}>
+                      <select value={editUserForm.role} onChange={e => setEditUserForm(p => ({ ...p, role: e.target.value }))} className={inp}>
                         <option value="recruiter">Recruiter</option>
                         <option value="hr_manager">HR Manager</option>
                         <option value="hod">HOD / Interviewer</option>
@@ -489,11 +502,7 @@ export default function SettingsPage() {
                       </select>
                     </Field>
                     <div className="flex gap-2 pt-2">
-                      <button onClick={() => {
-                        const name = (document.getElementById("eu-name") as HTMLInputElement)?.value;
-                        const role = (document.getElementById("eu-role") as HTMLSelectElement)?.value;
-                        updateUser(editingUser.id, { name, role });
-                      }} className={btnPrimary}>Save</button>
+                      <button onClick={() => updateUser(editingUser.id, { name: editUserForm.name, role: editUserForm.role })} className={btnPrimary}>Save</button>
                       <button onClick={() => setEditingUser(null)} className={btnSecondary}>Cancel</button>
                     </div>
                   </div>
@@ -512,7 +521,7 @@ export default function SettingsPage() {
                     <span className="text-xs text-gray-400 w-6 text-right">{i + 1}</span>
                     <div className="w-2 h-2 rounded-full bg-brand-400 flex-shrink-0" />
                     <span className="text-sm text-gray-800">{s}</span>
-                    {["Joined","Rejected/Dropped"].includes(s) && (
+                    {["Joined","Rejected","Dropped By Candidate"].includes(s) && (
                       <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${s === "Joined" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
                         {s === "Joined" ? "Final ✓" : "Final ✗"}
                       </span>
@@ -1020,7 +1029,7 @@ export default function SettingsPage() {
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between pb-4 border-b border-gray-100">
                   <div>
-                    <p className="font-semibold text-gray-900">HireRabbits ATS</p>
+                    <p className="font-semibold text-gray-900">HireRabbits</p>
                     <p className="text-sm text-gray-400 mt-0.5">Enterprise Plan</p>
                   </div>
                   <span className="bg-green-100 text-green-700 text-sm font-semibold px-3 py-1 rounded-full">Active</span>

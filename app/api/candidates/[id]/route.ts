@@ -64,6 +64,7 @@ const WRITABLE_CANDIDATE_FIELDS = new Set([
   "job_id",
   "custom_data",
   "parsed_keywords",
+  "referred_by",
 ]);
 
 function pickWritableCandidateFields(input: Record<string, unknown>) {

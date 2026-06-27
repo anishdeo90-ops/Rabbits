@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { HireRabbitsLogo } from "@/components/hirerabbits-logo";
 import toast from "react-hot-toast";
+import { HireRabbitsLogo } from "@/components/hirerabbits-logo";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -14,7 +14,12 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
     if (error) {
       toast.error(error.message);
       setLoading(false);
@@ -23,22 +28,19 @@ export default function LoginPage() {
       const safeNext = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login")
         ? next
         : "/dashboard";
-      // Hard redirect ensures cookies are flushed before server middleware reads them.
       window.location.href = safeNext;
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-shell flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo / Header */}
         <div className="text-center mb-8">
           <HireRabbitsLogo className="mx-auto mb-4 h-16 w-16 rounded-2xl shadow-lg" />
           <h1 className="text-2xl font-bold text-gray-900">HireRabbits</h1>
           <p className="text-gray-500 mt-1 text-sm">Fast, smart hiring made simple</p>
         </div>
 
-        {/* Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <h2 className="text-lg font-semibold text-gray-800 mb-6">Sign in to your account</h2>
           <form onSubmit={handleLogin} className="space-y-5">
@@ -52,7 +54,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-                placeholder="you@hirerabbits.com"
+                placeholder="you@hirerabbits.ai"
               />
             </div>
             <div>
@@ -65,7 +67,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-                placeholder="••••••••"
+                placeholder="********"
               />
             </div>
             <button
@@ -73,7 +75,7 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
             >
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? "Signing in..." : "Sign in"}
             </button>
           </form>
         </div>

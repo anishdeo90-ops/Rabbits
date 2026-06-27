@@ -47,14 +47,55 @@ export async function POST(req: NextRequest) {
         }
       }
       if (Object.keys(patch).length > 0) {
-        // Resolve FK fields for display names → IDs
         if (patch.source_name) {
           const { data: src } = await supabase.from("masters").select("id").eq("type","source").eq("name", patch.source_name).single();
-          if (src) { patch.source_id = src.id; delete patch.source_name; }
-          else { delete patch.source_name; }
+          if (src) patch.source_id = src.id;
+          delete patch.source_name;
         }
-        await supabase.from("candidates").update(patch).eq("id", candidate_id);
+
+        const allowed = new Set([
+          "name",
+          "mobile",
+          "email",
+          "current_designation",
+          "current_location",
+          "present_salary",
+          "expected_salary",
+          "source_id",
+          "designation_id",
+          "site_id",
+          "notice_period_days",
+        ]);
+        const candidateUpdate = Object.fromEntries(Object.entries(patch).filter(([key]) => allowed.has(key)));
+        if (Object.keys(candidateUpdate).length > 0) {
+          const { data: existing } = await supabase.from("candidates").select("*").eq("id", candidate_id).single();
+          const safeUpdate: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(candidateUpdate)) {
+            const current = (existing as Record<string, unknown> | null)?.[key];
+            if (current === null || current === undefined || current === "") safeUpdate[key] = value;
+          }
+          if (Object.keys(safeUpdate).length > 0) {
+            await supabase.from("candidates").update(safeUpdate).eq("id", candidate_id);
+          }
+        }
       }
+    }
+  }
+
+  if (candidate_id) {
+    const [{ data: candidateRow }, { data: formRow }] = await Promise.all([
+      supabase.from("candidates").select("name,hr_id").eq("id", candidate_id).single(),
+      supabase.from("forms").select("name").eq("id", form_id).single(),
+    ]);
+    if (candidateRow?.hr_id) {
+      await supabase.from("notifications").insert({
+        user_id: candidateRow.hr_id,
+        type: "form_submitted",
+        candidate_id,
+        title: `${candidateRow.name} filled a form`,
+        body: `${candidateRow.name} has just submitted the "${formRow?.name ?? "form"}"`,
+        is_read: false,
+      });
     }
   }
 

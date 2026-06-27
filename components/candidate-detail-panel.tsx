@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, createContext, useContext, useRef } from "react";
-import { X, ExternalLink, Trash2, Save, AlertTriangle, UserPlus, Mail, MessageSquare, Phone, Upload, FileText, Calendar, Video, Plus, Send, Paperclip, Sparkles, ChevronDown, ChevronUp, Lock, Unlock, CheckCircle } from "lucide-react";
-import type { Candidate, CoSourcer, Master, Profile, CandidateOffer, ParsedKeywords } from "@/lib/types";
+import { X, ExternalLink, Trash2, Save, AlertTriangle, UserPlus, Mail, MessageSquare, Phone, Upload, FileText, Calendar, Video, Plus, Send, Paperclip, Sparkles, ChevronDown, ChevronUp, Lock, Unlock, CheckCircle, Share2, ArrowRightCircle, Download } from "lucide-react";
+import type { Candidate, CoSourcer, Master, Profile, CandidateOffer } from "@/lib/types";
 import { computeCTC, CTC_SYSTEM_TEMPLATES, generateOfferLetterHTML, type CTCBreakdown } from "@/lib/ctc";
 import toast from "react-hot-toast";
 
@@ -63,20 +63,12 @@ function Textarea({ field, rows = 3, placeholder }: { field: keyof Candidate; ro
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Tab = "overview" | "keywords" | "telephonic" | "gf" | "pi" | "comms" | "files" | "forms" | "offer" | "final" | "notes" | "history";
+type Tab = "overview" | "telephonic" | "gf" | "pi" | "comms" | "files" | "forms" | "offer" | "final" | "notes" | "history";
 
 interface CommEntry {
   id: string; type: string; direction: string; subject?: string; content: string;
   template_used?: string; created_at: string;
   profiles?: { name: string };
-}
-interface AutomationFollowupEntry {
-  id: string;
-  status: string;
-  scheduled_at: string;
-  executed_at?: string | null;
-  error_message?: string | null;
-  automation_rules?: { name?: string; trigger_type?: string; action_type?: string } | null;
 }
 interface FileEntry {
   id: string; file_name: string; storage_path: string; file_category: string;
@@ -160,46 +152,6 @@ function formatBytes(b?: number) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
-async function readJson<T = { data?: unknown; error?: string }>(res: Response): Promise<T | null> {
-  const text = await res.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
-}
-
-function KeywordPills({ values, accent = "gray" }: { values?: string[]; accent?: "gray" | "blue" | "green" | "red" }) {
-  if (!values?.length) return <span className="text-xs text-gray-400">None captured</span>;
-  const color = accent === "blue"
-    ? "bg-brand-50 text-brand-700 border-brand-200"
-    : accent === "green"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : accent === "red"
-        ? "bg-red-50 text-red-700 border-red-200"
-        : "bg-gray-50 text-gray-600 border-gray-200";
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {values.map(value => (
-        <span key={value} className={`text-xs px-2 py-0.5 rounded-lg border font-medium ${color}`}>
-          {value}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-type KeywordArrayField =
-  | "skills"
-  | "tools"
-  | "projects"
-  | "previous_companies"
-  | "summary_tags"
-  | "industries"
-  | "certifications"
-  | "languages";
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
   candidateId: string;
@@ -215,7 +167,6 @@ interface Props {
 export default function DetailPanel({ candidateId, profile, sites, designations, sources, recruiters, onClose, onUpdated }: Props) {
   const [tab, setTab]           = useState<Tab>("overview");
   const [cand, setCand]         = useState<Candidate | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [coSourcers, setCoSourcers] = useState<CoSourcer[]>([]);
   const [form, setForm]         = useState<Partial<Candidate>>({});
   const [saving, setSaving]     = useState(false);
@@ -234,8 +185,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   const [logContent, setLogContent]     = useState("");
   const [logTemplate, setLogTemplate]   = useState("");
   const [savingLog, setSavingLog]       = useState(false);
-  const [automationFollowups, setAutomationFollowups] = useState<AutomationFollowupEntry[]>([]);
-  const [automationLoading, setAutomationLoading] = useState(false);
   // Email composer
   const [showEmailComposer, setShowEmailComposer] = useState(false);
   const [emailTemplate, setEmailTemplate]         = useState("");
@@ -289,66 +238,57 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   const [coSourcerRecruiter, setCoSourcerRecruiter] = useState("");
   const [linkingCoSourcer, setLinkingCoSourcer]     = useState(false);
 
+  // Forward / handoff
+  const [showForwardModal, setShowForwardModal]   = useState(false);
+  const [forwardToUserId, setForwardToUserId]     = useState("");
+  const [forwardTabs, setForwardTabs]             = useState<string[]>([]);
+  const [forwardNote, setForwardNote]             = useState("");
+  const [forwarding, setForwarding]               = useState(false);
+  // Active forward TO this user (they are the recipient)
+  interface ActiveForward { id: string; unlocked_tabs: string[]; from_profile: { name: string } | null }
+  const [activeForward, setActiveForward]         = useState<ActiveForward | null>(null);
+  const [completing, setCompleting]               = useState(false);
+
   const isAdmin = ["admin", "hr_manager"].includes(profile.role);
-  const canEdit = true;
+  // canEdit is false when the current tab is locked by an active forward
+  const tabLocked = activeForward !== null && !activeForward.unlocked_tabs.includes(tab);
+  const canEdit = !tabLocked;
   const canDelete = isAdmin || (!cand ? true : cand.created_by === profile.id || cand.hr_id === profile.id);
 
   const fetchCandidate = useCallback(async () => {
-    setLoadError(null);
-    setCand(null);
     try {
       const res = await fetch(`/api/candidates/${candidateId}`);
-      if (!res.ok) {
-        let message = "Candidate not found or no longer accessible.";
-        const err = await readJson<{ error?: string }>(res);
-        if (err?.error) message = err.error;
-        setLoadError(message);
-        return;
-      }
-      const json = await readJson<{ data?: Candidate }>(res);
-      if (!json?.data) {
-        setLoadError("Candidate details could not be loaded.");
-        return;
-      }
+      if (!res.ok) return;
+      const json = await res.json();
       setCand(json.data); setForm(json.data);
-      try {
-        const csRes = await fetch(`/api/co-sourcers?candidate_id=${candidateId}`);
-        if (csRes.ok) {
-          const csJson = await readJson<{ data?: CoSourcer[] }>(csRes);
-          setCoSourcers(csJson?.data ?? []);
-        } else {
-          setCoSourcers([]);
-        }
-      } catch {
-        setCoSourcers([]);
-      }
-    } catch {
-      setLoadError("Candidate details could not be loaded. Check the dev server and try again.");
-      setCoSourcers([]);
+      const csRes = await fetch(`/api/co-sourcers?candidate_id=${candidateId}`);
+      if (!csRes.ok) return;
+      const csJson = await csRes.json();
+      setCoSourcers(csJson.data ?? []);
+    } catch (e) {
+      // Transient network / HMR-abort; surfaces as "Failed to fetch". Silent retry on next mount.
+      console.warn("fetchCandidate failed:", e);
     }
+  }, [candidateId]);
+
+  const fetchActiveForward = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/candidate-forwards?candidate_id=${candidateId}&to_me=true&status=pending`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setActiveForward(Array.isArray(data) && data.length > 0 ? data[0] : null);
+    } catch {}
   }, [candidateId]);
 
   const fetchComms = useCallback(async () => {
     setCommsLoading(true);
     try {
       const res = await fetch(`/api/candidates/${candidateId}/communications`);
-      if (res.ok) { const j = await readJson<{ data?: CommEntry[] }>(res); setComms(j?.data ?? []); }
-    } catch {
-      setComms([]);
+      if (res.ok) { const j = await res.json(); setComms(j.data ?? []); }
+    } catch (e) {
+      console.warn("fetchComms failed:", e);
     } finally {
       setCommsLoading(false);
-    }
-  }, [candidateId]);
-
-  const fetchAutomationFollowups = useCallback(async () => {
-    setAutomationLoading(true);
-    try {
-      const res = await fetch(`/api/automation/followups?candidate_id=${candidateId}`);
-      if (res.ok) { const j = await readJson<{ data?: AutomationFollowupEntry[] }>(res); setAutomationFollowups(j?.data ?? []); }
-    } catch {
-      setAutomationFollowups([]);
-    } finally {
-      setAutomationLoading(false);
     }
   }, [candidateId]);
 
@@ -356,9 +296,9 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     setFilesLoading(true);
     try {
       const res = await fetch(`/api/candidates/${candidateId}/files`);
-      if (res.ok) { const j = await readJson<{ data?: FileEntry[] }>(res); setFiles(j?.data ?? []); }
-    } catch {
-      setFiles([]);
+      if (res.ok) { const j = await res.json(); setFiles(j.data ?? []); }
+    } catch (e) {
+      console.warn("fetchFiles failed:", e);
     } finally {
       setFilesLoading(false);
     }
@@ -368,16 +308,13 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     setFormsLoading(true);
     try {
       const [responsesRes, formsRes] = await Promise.all([
-        fetch(`/api/form-responses?candidate_id=${candidateId}`),
-        fetch("/api/forms"),
+        fetch(`/api/form-responses?candidate_id=${candidateId}`).then(r => r.json()),
+        fetch("/api/forms").then(r => r.json()),
       ]);
-      const responsesJson = responsesRes.ok ? await readJson<{ data?: typeof formResponses }>(responsesRes) : null;
-      const formsJson = formsRes.ok ? await readJson<{ data?: typeof linkedForms }>(formsRes) : null;
-      setFormResponses(responsesJson?.data ?? []);
-      setLinkedForms(formsJson?.data ?? []);
-    } catch {
-      setFormResponses([]);
-      setLinkedForms([]);
+      setFormResponses(responsesRes.data ?? []);
+      setLinkedForms(formsRes.data ?? []);
+    } catch (e) {
+      console.warn("fetchForms failed:", e);
     } finally {
       setFormsLoading(false);
     }
@@ -387,9 +324,9 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     setHistoryLoading(true);
     try {
       const res = await fetch(`/api/activity-logs?candidate_id=${candidateId}`);
-      if (res.ok) { const j = await readJson<{ data?: typeof historyEntries }>(res); setHistoryEntries(j?.data ?? []); }
-    } catch {
-      setHistoryEntries([]);
+      if (res.ok) { const j = await res.json(); setHistoryEntries(j.data ?? []); }
+    } catch (e) {
+      console.warn("fetchHistory failed:", e);
     } finally {
       setHistoryLoading(false);
     }
@@ -399,16 +336,16 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     setOffersLoading(true);
     try {
       const res = await fetch(`/api/candidates/${candidateId}/offers`);
-      if (res.ok) { const j = await readJson<{ data?: CandidateOffer[] }>(res); setOffers(j?.data ?? []); }
-    } catch {
-      setOffers([]);
+      if (res.ok) { const j = await res.json(); setOffers(j.data ?? []); }
+    } catch (e) {
+      console.warn("fetchOffers failed:", e);
     } finally {
       setOffersLoading(false);
     }
   }, [candidateId]);
 
-  useEffect(() => { fetchCandidate(); }, [fetchCandidate]);
-  useEffect(() => { if (tab === "comms") { fetchComms(); fetchAutomationFollowups(); } }, [tab, fetchComms, fetchAutomationFollowups]);
+  useEffect(() => { fetchCandidate(); fetchActiveForward(); }, [fetchCandidate, fetchActiveForward]);
+  useEffect(() => { if (tab === "comms") fetchComms(); }, [tab, fetchComms]);
   useEffect(() => { if (tab === "files") fetchFiles(); }, [tab, fetchFiles]);
   useEffect(() => { if (tab === "forms") fetchForms(); }, [tab, fetchForms]);
   useEffect(() => { if (tab === "history") fetchHistory(); }, [tab, fetchHistory]);
@@ -440,7 +377,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
         "gf_issued", "shortlisted_by_mgmt", "gf_issue_date", "gf_received_date",
         "gf_verified", "gf_verification_report", "addr_verification_shared", "addr_verification_received",
         "remarks", "final_status", "final_action", "file_no", "doj", "doj_potential", "doj_actual",
-        "hard_copy", "staffingo_emp_id", "custom_data", "parsed_keywords",
+        "hard_copy", "staffingo_emp_id", "custom_data",
       ];
       const payload: Record<string, unknown> = {};
       for (const key of WRITABLE) {
@@ -472,6 +409,46 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     });
     if (res.ok) { await fetchCandidate(); }
     return updated;
+  }
+
+  async function sendForward() {
+    if (!cand || !forwardToUserId || forwardTabs.length === 0) {
+      toast.error("Pick a recipient and at least one section");
+      return;
+    }
+    setForwarding(true);
+    try {
+      const res = await fetch("/api/candidate-forwards", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate_id: cand.id, to_user_id: forwardToUserId, unlocked_tabs: forwardTabs, note: forwardNote || null }),
+      });
+      if (res.ok) {
+        toast.success("Candidate forwarded successfully");
+        setShowForwardModal(false);
+        setForwardToUserId(""); setForwardTabs([]); setForwardNote("");
+      } else {
+        const err = await res.json(); toast.error(err.error ?? "Failed to forward");
+      }
+    } catch { toast.error("Failed to forward"); }
+    finally { setForwarding(false); }
+  }
+
+  async function completeForward() {
+    if (!activeForward) return;
+    setCompleting(true);
+    try {
+      const res = await fetch(`/api/candidate-forwards/${activeForward.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "completed" }),
+      });
+      if (res.ok) {
+        toast.success("Marked as complete — recruiter notified");
+        setActiveForward(null);
+      } else {
+        const err = await res.json(); toast.error(err.error ?? "Failed");
+      }
+    } catch { toast.error("Failed"); }
+    finally { setCompleting(false); }
   }
 
   async function handleDelete() {
@@ -543,20 +520,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   async function deleteComm(commId: string) {
     const res = await fetch(`/api/candidates/${candidateId}/communications?comm_id=${commId}`, { method: "DELETE" });
     if (res.ok) { fetchComms(); toast.success("Deleted"); }
-  }
-
-  async function cancelAutomationFollowup(followupId: string) {
-    const res = await fetch(`/api/automation/followups/${followupId}`, { method: "PATCH" });
-    if (res.ok) { fetchAutomationFollowups(); toast.success("Follow-up cancelled"); }
-    else { const e = await res.json(); toast.error(e.error ?? "Cancel failed"); }
-  }
-
-  function followupCountdown(iso: string) {
-    const diff = new Date(iso).getTime() - Date.now();
-    if (diff <= 0) return "due now";
-    const hours = Math.floor(diff / 3600000);
-    const minutes = Math.floor((diff % 3600000) / 60000);
-    return `fires in ${hours}h ${minutes}m`;
   }
 
   async function uploadFile(file: File) {
@@ -697,7 +660,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("candidate_id", candidateId);
       const res = await fetch("/api/parse-resume", { method: "POST", body: fd });
       if (!res.ok) { const e = await res.json(); toast.error(e.error ?? "Parse failed"); return; }
       const j = await res.json();
@@ -723,7 +685,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     if (!cand) return;
     const allowed: (keyof Candidate)[] = [
       "name","email","mobile","current_designation","current_location",
-      "present_salary","expected_salary","notice_period_days","naukri_profile_url","ai_summary","parsed_keywords",
+      "present_salary","expected_salary","notice_period_days","naukri_profile_url","ai_summary",
     ];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) {
@@ -774,54 +736,10 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     window.open(`https://wa.me/${mobile}?text=${encodeURIComponent(text)}`);
   }
 
-  if (loadError) return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[600px] bg-white flex flex-col items-center justify-center px-8 text-center">
-        <AlertTriangle className="text-amber-500 mb-3" size={28} />
-        <h2 className="text-base font-semibold text-gray-900">Candidate could not be opened</h2>
-        <p className="text-sm text-gray-500 mt-2">{loadError}</p>
-        <button
-          onClick={onClose}
-          className="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-        >
-          Back to candidates
-        </button>
-      </div>
-    </div>
-  );
-
-  if (loadError) return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[600px] bg-white flex items-center justify-center p-6">
-        <div className="max-w-sm text-center space-y-3">
-          <div className="mx-auto h-10 w-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center">
-            <AlertTriangle size={20} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Could not open candidate</p>
-            <p className="text-xs text-gray-500 mt-1">{loadError}</p>
-          </div>
-          <div className="flex justify-center gap-2">
-            <button onClick={fetchCandidate}
-              className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg hover:bg-brand-600">
-              Retry
-            </button>
-            <button onClick={onClose}
-              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50">
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
   if (!cand) return (
     <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[600px] bg-white flex items-center justify-center">
+      <div className="hidden sm:block flex-1 bg-black/30" onClick={onClose} />
+      <div className="w-full sm:w-[600px] bg-white flex items-center justify-center">
         <p className="text-gray-400 text-sm">Loading…</p>
       </div>
     </div>
@@ -832,14 +750,13 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview",   label: "Overview"    },
-    { key: "keywords",   label: "Skills"      },
     { key: "telephonic", label: "Telephonic"  },
-    { key: "gf",         label: "GF / Screen" },
     { key: "pi",         label: "PI Rounds"   },
+    { key: "gf",         label: "GF / Screening" },
+    { key: "offer",      label: "Offer"       },
     { key: "comms",      label: "Comms"       },
     { key: "files",      label: "Files"       },
     { key: "forms",      label: "Forms"       },
-    { key: "offer",      label: "Offer"       },
     { key: "final",      label: "Final"       },
     { key: "notes",      label: "Notes"       },
     { key: "history",    label: "🕐 History"  },
@@ -850,40 +767,11 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     "Educational Certificates", "Bank Details", "Passport Photo (2 copies)", "Background Check Consent",
   ];
 
-  const keywordData = ((form.parsed_keywords ?? cand.parsed_keywords ?? {}) as ParsedKeywords);
-  const keywordInputClass = `w-full border rounded-lg px-3 py-1.5 text-xs outline-none ${
-    !canEdit ? "bg-gray-50 text-gray-400 cursor-default border-gray-100" : "border-gray-200 bg-white focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-  }`;
-  const keywordTextareaClass = `${keywordInputClass} resize-none`;
-
-  function setKeywordField<K extends keyof ParsedKeywords>(field: K, value: ParsedKeywords[K] | undefined) {
-    const next: ParsedKeywords = { ...keywordData };
-    if (value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
-      delete next[field];
-    } else {
-      next[field] = value;
-    }
-    setForm(prev => ({ ...prev, parsed_keywords: next }));
-    setDirty(true);
-  }
-
-  function setKeywordArray(field: KeywordArrayField, value: string) {
-    const items = value
-      .split(/[\n,]+/)
-      .map(item => item.trim())
-      .filter(Boolean);
-    setKeywordField(field, items.length ? items : undefined);
-  }
-
-  function keywordArrayText(field: KeywordArrayField) {
-    return keywordData[field]?.join(", ") ?? "";
-  }
-
   return (
     <PanelContext.Provider value={{ form, canEdit, onChange: handleChange }}>
     <>
-      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed right-0 top-0 bottom-0 w-[600px] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
+      <div className="hidden sm:block fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 sm:inset-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-[600px] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
         <div className="border-b border-gray-200 px-5 py-4 flex-shrink-0">
@@ -913,6 +801,14 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Forward / send candidate to higher manager */}
+              <button
+                title="Forward candidate to another team member"
+                onClick={() => setShowForwardModal(true)}
+                className="text-gray-400 hover:text-indigo-600 transition-colors"
+              >
+                <Share2 size={16} />
+              </button>
               {/* Quick action buttons */}
               <button title="Email candidate"
                 onClick={() => { setTab("comms"); setShowEmailComposer(true); }}
@@ -948,15 +844,47 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
             )}
           </div>
 
+          {/* Active forward banner — shown when this user is the recipient */}
+          {activeForward && (
+            <div className="mt-3 flex items-center justify-between gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Lock size={13} className="text-indigo-500 flex-shrink-0" />
+                <p className="text-xs text-indigo-700">
+                  <span className="font-semibold">{activeForward.from_profile?.name ?? "A recruiter"}</span> forwarded this candidate — you can edit:{" "}
+                  <span className="font-medium">{activeForward.unlocked_tabs.join(", ")}</span>
+                </p>
+              </div>
+              <button
+                onClick={completeForward}
+                disabled={completing}
+                className="flex-shrink-0 flex items-center gap-1.5 text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+              >
+                <CheckCircle size={12} />
+                {completing ? "Saving…" : "Mark Complete"}
+              </button>
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="flex mt-3 -mb-px gap-0 overflow-x-auto">
-            {TABS.map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)}
-                className={`px-3 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  tab === t.key ? "border-brand-500 text-brand-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-                {t.label}
-              </button>
-            ))}
+            {TABS.map(t => {
+              const locked = activeForward !== null && !activeForward.unlocked_tabs.includes(t.key);
+              return (
+                <button key={t.key}
+                  onClick={() => !locked && setTab(t.key)}
+                  title={locked ? "Locked — not included in this review" : undefined}
+                  className={`relative px-3 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${
+                    locked
+                      ? "border-transparent text-gray-300 cursor-not-allowed"
+                      : tab === t.key
+                        ? "border-brand-500 text-brand-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}>
+                  {locked && <Lock size={9} className="inline mr-0.5 opacity-50" />}
+                  {t.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -997,11 +925,12 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                 </Field>
                 <Field label="Current Status">
                   <Select field="final_status" options={[
-                    "Recruiter Screening Done","HR Manager Screening Done","Dept Mgr Screening Done",
-                    "Mgmt Approved for PI Call","Called for PI","Did not Attend Interview",
-                    "PI 1 Done","PI 2 Done","GF Issued","Shortlisted","Hold","Suitable for Future",
-                    "Offered but Not Joined","Offered","Not Interested","Rejected","Appointed",
-                    "Joined","Joined & Left","Active Employee",
+                    "Sourced","Applied","Recruiter Screening Done","HR Manager Screening Done",
+                    "Dept Mgr Screening Done","Mgmt Approved for PI Call","Called for PI",
+                    "Did Not Attend Interview","PI 1 Done","PI 2 Done","GF Issued","Shortlisted",
+                    "Shortlisted But Not Offered","Hold","Suitable for Future","Offered But Did Not Join",
+                    "Offered","Not Interested","Rejected","Appointed","Joined","Joined & Left",
+                    "Active Employee","Not Yet Processed","Other","Dropped By Candidate",
                   ].map(s => ({ value: s, label: s }))} />
                 </Field>
               </div>
@@ -1028,155 +957,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
           )}
 
           {/* ── TELEPHONIC ── */}
-          {tab === "keywords" && (
-            <div className="space-y-4">
-              <div className="border border-gray-200 rounded-xl p-3 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-700">Skills &amp; Keywords</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Extracted from the candidate CV</p>
-                  </div>
-                  <button onClick={() => parseFileRef.current?.click()} disabled={parsing}
-                    className="flex items-center gap-1.5 text-xs border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-60">
-                    <Sparkles size={11} /> {parsing ? "Parsing..." : "Re-parse CV"}
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Experience</p>
-                    <input
-                      type="number"
-                      min={0}
-                      value={keywordData.years_experience ?? ""}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordField("years_experience", e.target.value ? Number(e.target.value) : undefined)}
-                      className={keywordInputClass}
-                      placeholder="Years"
-                    />
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Education</p>
-                    <input
-                      value={keywordData.education ?? ""}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordField("education", e.target.value || undefined)}
-                      className={keywordInputClass}
-                      placeholder="Degree / qualification"
-                    />
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">College</p>
-                    <input
-                      value={keywordData.college ?? ""}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordField("college", e.target.value || undefined)}
-                      className={keywordInputClass}
-                      placeholder="College / university"
-                    />
-                  </div>
-                  <div className="bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Current Role</p>
-                    <input
-                      value={keywordData.current_role ?? ""}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordField("current_role", e.target.value || undefined)}
-                      className={keywordInputClass}
-                      placeholder="Current role"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Skills</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("skills")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("skills", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="Python, React, SQL"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Tools</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("tools")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("tools", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="AWS, Docker, Git"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Projects</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("projects")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("projects", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="Recruitment dashboard, Resume parser"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Previous Companies</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("previous_companies")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("previous_companies", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="Company A, Company B"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Summary Tags</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("summary_tags")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("summary_tags", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="Python 4yr, Team Lead, B.Tech"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Industries</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("industries")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("industries", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="SaaS, Hospitality, Retail"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Certifications</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("certifications")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("certifications", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="AWS Certified, PMP"
-                    />
-                  </div>
-                  <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-400 font-medium mb-1">Languages</p>
-                    <textarea
-                      rows={2}
-                      value={keywordArrayText("languages")}
-                      disabled={!canEdit}
-                      onChange={e => setKeywordArray("languages", e.target.value)}
-                      className={keywordTextareaClass}
-                      placeholder="English, Hindi"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {tab === "telephonic" && (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Tel. Int. Date"><Input field="tel_int_date" type="date" /></Field>
@@ -1391,48 +1171,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                   })}
                 </div>
               )}
-
-              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-gray-700">Automations</p>
-                  <button onClick={fetchAutomationFollowups} className="text-xs text-gray-400 hover:text-gray-600">Refresh</button>
-                </div>
-                {automationLoading ? (
-                  <p className="text-xs text-gray-400 text-center py-3">Loading automation history...</p>
-                ) : automationFollowups.length === 0 ? (
-                  <p className="text-xs text-gray-400 text-center py-3">No automation follow-ups queued yet</p>
-                ) : (
-                  <div className="space-y-2">
-                    {automationFollowups.map(f => (
-                      <div key={f.id} className="bg-gray-50 rounded-lg px-3 py-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-gray-800 truncate">{f.automation_rules?.name ?? "Automation follow-up"}</p>
-                            <p className="text-xs text-gray-400">
-                              {f.status === "pending" ? followupCountdown(f.scheduled_at) : f.executed_at ? `executed ${new Date(f.executed_at).toLocaleString("en-IN")}` : new Date(f.scheduled_at).toLocaleString("en-IN")}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${
-                              f.status === "pending" ? "bg-amber-100 text-amber-700" :
-                              f.status === "sent" ? "bg-green-100 text-green-700" :
-                              f.status === "failed" ? "bg-red-100 text-red-700" :
-                              "bg-gray-100 text-gray-600"
-                            }`}>{f.status}</span>
-                            {f.status === "pending" && (
-                              <button onClick={() => cancelAutomationFollowup(f.id)}
-                                className="text-xs border border-red-200 text-red-500 px-2 py-1 rounded-lg hover:bg-red-50">
-                                Cancel
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {f.error_message && <p className="text-xs text-red-500 mt-1">{f.error_message}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           )}
 
@@ -1622,7 +1360,7 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                   <div className="space-y-2">
                     {linkedForms.map(f => {
                       const responses = formResponses.filter(r => r.form_id === f.id);
-                      const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/f/${f.id}`;
+                      const shareUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "")}/f/${f.id}?c=${candidateId}`;
                       return (
                         <div key={f.id} className="border border-gray-100 rounded-lg p-2.5 space-y-1.5">
                           <div className="flex items-center justify-between gap-2">
@@ -1631,10 +1369,66 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                               <span className="text-xs text-gray-400 capitalize">{f.type.replace("_", " ")}</span>
                             </div>
                             <div className="flex gap-1">
+                              {responses.length > 0 && (
+                                <button
+                                  onClick={() => {
+                                    const latest = responses[responses.length - 1];
+                                    const fields = (latest.forms?.fields ?? []) as { id: string; label: string; type?: string }[];
+                                    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                                    const groups: { title: string | null; rows: { label: string; value: string }[] }[] = [];
+                                    let cur: { title: string | null; rows: { label: string; value: string }[] } = { title: null, rows: [] };
+                                    for (const fld of fields) {
+                                      if ((fld as { type?: string }).type === "section") {
+                                        if (cur.rows.length || cur.title !== null) groups.push(cur);
+                                        cur = { title: fld.label || "Section", rows: [] };
+                                      } else {
+                                        const v = latest.responses[fld.id];
+                                        if (v !== undefined && v !== "" && v !== false) {
+                                          cur.rows.push({ label: fld.label, value: typeof v === "boolean" ? (v ? "Yes" : "No") : String(v) });
+                                        }
+                                      }
+                                    }
+                                    if (cur.rows.length || cur.title !== null) groups.push(cur);
+                                    const nonEmpty = groups.filter(g => g.rows.length > 0);
+                                    const body = nonEmpty.map(g =>
+                                      `${g.title ? `<h3 class="sec">${esc(g.title)}</h3>` : ""}${g.rows.map(r => `<div class="row"><span class="lbl">${esc(r.label)}:</span><span class="val">${esc(r.value)}</span></div>`).join("")}`
+                                    ).join("");
+                                    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(f.name)} — ${esc(cand?.name ?? "")}</title><style>body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#333}h1{font-size:16px;margin:0 0 2px}h2{font-size:11px;color:#666;font-weight:normal;margin:0 0 18px}.sec{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#ff2d87;border-bottom:1px solid #fed7aa;padding-bottom:3px;margin:14px 0 6px}.row{display:flex;gap:12px;margin:3px 0}.lbl{font-weight:600;min-width:150px;flex-shrink:0;color:#555}.val{color:#111}@media print{body{padding:0}}</style></head><body><h1>${esc(f.name)}</h1><h2>Candidate: ${esc(cand?.name ?? "")} &nbsp;·&nbsp; Submitted: ${new Date(latest.submitted_at).toLocaleDateString("en-IN")}</h2>${body}<script>window.onload=function(){window.print()}<\/script></body></html>`;
+                                    const w = window.open("", "_blank");
+                                    if (w) { w.document.write(html); w.document.close(); }
+                                  }}
+                                  className="text-xs border border-green-200 px-2 py-1 rounded-lg text-green-600 hover:bg-green-50 flex items-center gap-1">
+                                  <Download size={10} /> PDF
+                                </button>
+                              )}
                               <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(shareUrl);
-                                  toast.success("Form link copied");
+                                onClick={async () => {
+                                  let copied = false;
+                                  if (navigator.clipboard && window.isSecureContext) {
+                                    try {
+                                      await navigator.clipboard.writeText(shareUrl);
+                                      copied = true;
+                                    } catch {
+                                      // fall through to execCommand
+                                    }
+                                  }
+                                  if (!copied) {
+                                    const ta = document.createElement("textarea");
+                                    ta.value = shareUrl;
+                                    ta.style.position = "fixed";
+                                    ta.style.left = "-9999px";
+                                    ta.style.top = "-9999px";
+                                    document.body.appendChild(ta);
+                                    ta.focus();
+                                    ta.select();
+                                    copied = document.execCommand("copy");
+                                    document.body.removeChild(ta);
+                                  }
+                                  if (copied) {
+                                    toast.success("Form link copied");
+                                  } else {
+                                    toast.error("Copy failed — select and copy this link manually: " + shareUrl);
+                                  }
                                 }}
                                 className="text-xs border border-gray-200 px-2 py-1 rounded-lg text-gray-500 hover:bg-gray-50">
                                 Copy Link
@@ -1667,15 +1461,46 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                                     <span className="text-xs text-brand-500">{expandedResponse === r.id ? "▲ hide" : "▼ view"}</span>
                                   </div>
                                   {expandedResponse === r.id && r.forms?.fields && (
-                                    <div className="mt-2 space-y-1.5">
-                                      {r.forms.fields.map((field: { id: string; label: string }) => (
-                                        r.responses[field.id] !== undefined && (
-                                          <div key={field.id}>
-                                            <span className="text-xs text-gray-400 font-medium">{field.label}: </span>
-                                            <span className="text-xs text-gray-700">{String(r.responses[field.id])}</span>
+                                    <div className="mt-2 space-y-3">
+                                      {(() => {
+                                        const fields = r.forms.fields as { id: string; label: string; type?: string }[];
+                                        // Group fields by section marker. Anything before the first section goes under "General".
+                                        const groups: { title: string | null; rows: { id: string; label: string }[] }[] = [];
+                                        let current: { title: string | null; rows: { id: string; label: string }[] } = { title: null, rows: [] };
+                                        for (const f of fields) {
+                                          if (f.type === "section") {
+                                            if (current.rows.length || current.title !== null) groups.push(current);
+                                            current = { title: f.label || "Section", rows: [] };
+                                          } else if (r.responses[f.id] !== undefined && r.responses[f.id] !== "" && r.responses[f.id] !== false) {
+                                            current.rows.push({ id: f.id, label: f.label });
+                                          }
+                                        }
+                                        if (current.rows.length || current.title !== null) groups.push(current);
+                                        // Drop empty groups so a section with no answers doesn't render an empty header
+                                        const nonEmpty = groups.filter(g => g.rows.length > 0);
+                                        if (nonEmpty.length === 0) return <p className="text-xs text-gray-400 italic">No answers in this submission.</p>;
+                                        return nonEmpty.map((g, gi) => (
+                                          <div key={gi} className="space-y-1">
+                                            {g.title && (
+                                              <p className="text-[10px] uppercase tracking-wider font-semibold text-brand-600 border-b border-brand-100 pb-0.5 mb-1">
+                                                {g.title}
+                                              </p>
+                                            )}
+                                            <div className="space-y-1 pl-1">
+                                              {g.rows.map(row => {
+                                                const v = r.responses[row.id];
+                                                const display = typeof v === "boolean" ? (v ? "Yes" : "No") : String(v);
+                                                return (
+                                                  <div key={row.id} className="flex gap-2 items-baseline">
+                                                    <span className="text-xs text-gray-400 font-medium flex-shrink-0 min-w-[8rem]">{row.label}:</span>
+                                                    <span className="text-xs text-gray-700 break-words">{display}</span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
                                           </div>
-                                        )
-                                      ))}
+                                        ));
+                                      })()}
                                     </div>
                                   )}
                                 </div>
@@ -2129,11 +1954,12 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                 </Field>
                 <Field label="Current Status">
                   <Select field="final_status" options={[
-                    "Recruiter Screening Done","HR Manager Screening Done","Dept Mgr Screening Done",
-                    "Mgmt Approved for PI Call","Called for PI","Did not Attend Interview",
-                    "PI 1 Done","PI 2 Done","GF Issued","Shortlisted","Hold","Suitable for Future",
-                    "Offered but Not Joined","Offered","Not Interested","Rejected","Appointed",
-                    "Joined","Joined & Left","Active Employee",
+                    "Sourced","Applied","Recruiter Screening Done","HR Manager Screening Done",
+                    "Dept Mgr Screening Done","Mgmt Approved for PI Call","Called for PI",
+                    "Did Not Attend Interview","PI 1 Done","PI 2 Done","GF Issued","Shortlisted",
+                    "Shortlisted But Not Offered","Hold","Suitable for Future","Offered But Did Not Join",
+                    "Offered","Not Interested","Rejected","Appointed","Joined","Joined & Left",
+                    "Active Employee","Not Yet Processed","Other","Dropped By Candidate",
                   ].map(s => ({ value: s, label: s }))} />
                 </Field>
                 <Field label="File Number"><Input field="file_no" /></Field>
@@ -2251,6 +2077,112 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
           </div>
         )}
       </div>
+
+      {/* ── Forward Candidate Modal ── */}
+      {showForwardModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowForwardModal(false)} />
+          <div className="relative bg-white rounded-2xl p-6 w-[420px] shadow-2xl z-10 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">Forward Candidate</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Select recipient & the sections they can edit</p>
+              </div>
+              <button onClick={() => setShowForwardModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Recipient */}
+            <div className="mb-4">
+              <label className="text-xs font-semibold text-gray-700 block mb-1.5">Send to</label>
+              <select
+                value={forwardToUserId}
+                onChange={e => setForwardToUserId(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              >
+                <option value="">— Choose a team member —</option>
+                {recruiters
+                  .filter(r => r.id !== profile.id && r.is_active)
+                  .map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} ({r.role.replace("_", " ")})
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            {/* Section checkboxes */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-gray-700">Sections the recipient can edit</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForwardTabs(TABS.map(t => t.key))}
+                    className="text-[10px] text-indigo-600 hover:underline"
+                  >All</button>
+                  <span className="text-gray-300 text-xs">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setForwardTabs([])}
+                    className="text-[10px] text-gray-400 hover:underline"
+                  >None</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {TABS.map(t => (
+                  <label key={t.key} className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors text-xs ${
+                    forwardTabs.includes(t.key)
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                      : "border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200"
+                  }`}>
+                    <input
+                      type="checkbox"
+                      className="accent-indigo-600"
+                      checked={forwardTabs.includes(t.key)}
+                      onChange={e => {
+                        if (e.target.checked) setForwardTabs(prev => [...prev, t.key]);
+                        else setForwardTabs(prev => prev.filter(k => k !== t.key));
+                      }}
+                    />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Optional note */}
+            <div className="mb-5">
+              <label className="text-xs font-semibold text-gray-700 block mb-1.5">Note (optional)</label>
+              <textarea
+                rows={2}
+                value={forwardNote}
+                onChange={e => setForwardNote(e.target.value)}
+                placeholder="Add a message for the recipient…"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowForwardModal(false)}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendForward}
+                disabled={forwarding || !forwardToUserId || forwardTabs.length === 0}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ArrowRightCircle size={15} />
+                {forwarding ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Delete Modal ── */}
       {showDeleteModal && (

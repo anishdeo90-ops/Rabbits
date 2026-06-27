@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Users, Calendar, CheckCircle, Clock, MessageSquare, Trash2, ChevronLeft, ChevronRight, Filter } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Users, Calendar, CheckCircle, Clock, MessageSquare, Phone, Mail, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface ActivityStats { candidates_added: number; interviews_scheduled: number; joinings: number; pending_followups: number; }
-interface Interview { id: string; round: string; scheduled_at: string; status: string; meet_link?: string; interviewer_name?: string; candidate_name?: string; designation_name?: string; recruiter_id?: string; recruiter_name?: string; duration_mins?: number; }
-interface ProfileSummary { id: string; name: string; role: string; }
+interface Interview { id: string; round: string; scheduled_at: string; status: string; meet_link?: string; interviewer_name?: string; candidate_name?: string; designation_name?: string; }
 interface CandidateRow { id: string; name: string; final_status?: string; updated_at: string; }
 interface Joining { id: string; name: string; site_id?: string; doj_actual?: string; file_no?: string; }
 interface CandidateSuggestion { id: string; name: string; designation_name?: string; }
@@ -46,23 +46,15 @@ const CHANNEL_COLORS: Record<string, string> = {
   other:     "bg-gray-100 text-gray-600",
 };
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 function channelIcon(type: string) {
   return CHANNELS.find(c => c.value === type)?.icon ?? "📝";
 }
 
 export default function MyActivityPage() {
+  const router = useRouter();
   const [period, setPeriod]             = useState("");
   const [stats, setStats]               = useState<ActivityStats | null>(null);
   const [interviews, setInterviews]     = useState<Interview[]>([]);
-  const [profile, setProfile]           = useState<ProfileSummary | null>(null);
-  const [recruiters, setRecruiters]     = useState<ProfileSummary[]>([]);
-  const [recruiterFilter, setRecruiterFilter] = useState("");
-  const [calendarMonth, setCalendarMonth] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
   const [candidates, setCandidates]     = useState<CandidateRow[]>([]);
   const [joinings, setJoinings]         = useState<Joining[]>([]);
   const [loading, setLoading]           = useState(true);
@@ -122,35 +114,39 @@ export default function MyActivityPage() {
     } finally { setCommsLoading(false); }
   }, []);
 
+  function getPeriodDates() {
+    const now = new Date();
+    const fmt = (d: Date) => d.toISOString().split("T")[0];
+    if (period === "")       return { dateFrom: fmt(new Date(now.getFullYear(), now.getMonth(), 1)),     dateTo: fmt(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+    if (period === "last")   return { dateFrom: fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1)), dateTo: fmt(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    if (period === "last3")  return { dateFrom: fmt(new Date(now.getFullYear(), now.getMonth() - 3, 1)), dateTo: fmt(now) };
+    if (period === "custom") return { dateFrom: customFrom, dateTo: customTo };
+    return { dateFrom: "", dateTo: "" };
+  }
+
+  function buildUrl(extras: Record<string, string> = {}) {
+    const { dateFrom, dateTo } = getPeriodDates();
+    const p = new URLSearchParams({ owner: "mine" });
+    if (dateFrom) p.set("date_from", dateFrom);
+    if (dateTo)   p.set("date_to",   dateTo);
+    for (const [k, v] of Object.entries(extras)) { if (v) p.set(k, v); }
+    return `/candidates?${p.toString()}`;
+  }
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const now = new Date();
-      let dateFrom = "", dateTo = "";
-      if (period === "") {
-        dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-        dateTo   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
-      } else if (period === "last") {
-        dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split("T")[0];
-        dateTo   = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split("T")[0];
-      } else if (period === "last3") {
-        dateFrom = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().split("T")[0];
-        dateTo   = now.toISOString().split("T")[0];
-      } else if (period === "custom") {
-        dateFrom = customFrom; dateTo = customTo;
-      }
-      const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
-      if (recruiterFilter) params.set("recruiter_id", recruiterFilter);
+      const { dateFrom, dateTo } = getPeriodDates();
+      const params = `date_from=${dateFrom}&date_to=${dateTo}`;
       const res  = await fetch(`/api/my-activity?${params}`);
       const json = await res.json();
       setStats(json.stats);
       setInterviews(json.upcoming_interviews ?? []);
-      setProfile(json.viewer ?? null);
-      setRecruiters(json.recruiters ?? []);
       setCandidates(json.recent_candidates ?? []);
       setJoinings(json.joinings ?? []);
     } finally { setLoading(false); }
-  }, [period, customFrom, customTo, recruiterFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, customFrom, customTo]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => { fetchComms(); }, [fetchComms]);
@@ -159,15 +155,6 @@ export default function MyActivityPage() {
     const d = new Date(iso);
     return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + " · " +
       d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-  }
-  function formatTime(iso: string) {
-    return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-  }
-  function dateKey(date: Date) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  }
-  function moveCalendarMonth(delta: number) {
-    setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
   }
   function formatRelative(iso: string) {
     const diff = Date.now() - new Date(iso).getTime();
@@ -182,26 +169,16 @@ export default function MyActivityPage() {
   }
 
   const statusBadge: Record<string, string> = {
-    "Joined": "bg-green-100 text-green-700", "Appointed/Offered": "bg-brand-100 text-brand-700",
-    "PI Done": "bg-indigo-100 text-indigo-700", "Rejected/Dropped": "bg-red-100 text-red-600",
-    "On Hold": "bg-yellow-100 text-yellow-700",
+    "Joined":                "bg-green-100 text-green-700",
+    "Appointed":             "bg-brand-200 text-brand-800",
+    "Offered":               "bg-brand-100 text-brand-700",
+    "PI 1 Done":             "bg-indigo-100 text-indigo-700",
+    "PI 2 Done":             "bg-purple-100 text-purple-700",
+    "Rejected":              "bg-red-100 text-red-600",
+    "Dropped By Candidate":  "bg-red-100 text-red-500",
+    "Hold":                  "bg-yellow-100 text-yellow-700",
+    "Active Employee":       "bg-green-200 text-green-800",
   };
-
-  const canViewTeam = ["admin", "hr_manager"].includes(profile?.role ?? "");
-  const monthLabel = calendarMonth.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
-  const interviewsByDate = interviews.reduce<Record<string, Interview[]>>((acc, interview) => {
-    const key = dateKey(new Date(interview.scheduled_at));
-    acc[key] = [...(acc[key] ?? []), interview];
-    return acc;
-  }, {});
-  const firstCalendarDate = new Date(calendarMonth);
-  firstCalendarDate.setDate(1 - firstCalendarDate.getDay());
-  const calendarDays = Array.from({ length: 42 }, (_, index) => {
-    const day = new Date(firstCalendarDate);
-    day.setDate(firstCalendarDate.getDate() + index);
-    return day;
-  });
-  const todaysKey = dateKey(new Date());
 
   // Comms filtered by channel
   const filteredComms = commFilter === "all" ? comms : comms.filter(c => c.type === commFilter);
@@ -258,7 +235,7 @@ export default function MyActivityPage() {
   }
 
   return (
-    <div className="p-6 flex flex-col gap-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -287,12 +264,14 @@ export default function MyActivityPage() {
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Candidates Added",     value: stats?.candidates_added,     icon: Users,        color: "bg-brand-500" },
-          { label: "Interviews Scheduled", value: stats?.interviews_scheduled, icon: Calendar,     color: "bg-purple-500" },
-          { label: "My Joinings",          value: stats?.joinings,             icon: CheckCircle,  color: "bg-green-600" },
-          { label: "Pending Follow-ups",   value: stats?.pending_followups,    icon: Clock,        color: "bg-yellow-500" },
+          { label: "Candidates Added",     value: stats?.candidates_added,     icon: Users,       color: "bg-brand-500", href: buildUrl() },
+          { label: "Interviews Scheduled", value: stats?.interviews_scheduled, icon: Calendar,    color: "bg-purple-500", href: null },
+          { label: "My Joinings",          value: stats?.joinings,             icon: CheckCircle, color: "bg-green-600",  href: buildUrl({ status: "Joined" }) },
+          { label: "Pending Follow-ups (Now)", value: stats?.pending_followups, icon: Clock,       color: "bg-yellow-500", href: buildUrl() },
         ].map(kpi => (
-          <div key={kpi.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
+          <div key={kpi.label}
+            onClick={() => kpi.href && router.push(kpi.href)}
+            className={`bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 transition-shadow ${kpi.href ? "cursor-pointer hover:shadow-md hover:border-gray-300" : ""}`}>
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${kpi.color}`}>
               <kpi.icon size={20} className="text-white" />
             </div>
@@ -305,7 +284,7 @@ export default function MyActivityPage() {
       </div>
 
       {/* ── Communication Tracker ── */}
-      <div className="order-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <MessageSquare size={16} className="text-brand-500" />
@@ -370,120 +349,14 @@ export default function MyActivityPage() {
       </div>
 
       {/* Upcoming Interviews */}
-      <div className="order-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-purple-500" />
-            <h3 className="font-semibold text-gray-800 text-sm">Upcoming Interview Calendar</h3>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{interviews.length}</span>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {canViewTeam && (
-              <label className="flex items-center gap-2 text-xs text-gray-500">
-                <Filter size={14} />
-                <select
-                  value={recruiterFilter}
-                  onChange={e => setRecruiterFilter(e.target.value)}
-                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white min-w-44"
-                >
-                  <option value="">All recruiters</option>
-                  {recruiters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
-              </label>
-            )}
-            <button
-              onClick={() => moveCalendarMonth(-1)}
-              className="w-8 h-8 inline-flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50"
-              title="Previous month"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div className="w-36 text-center text-sm font-semibold text-gray-800">{monthLabel}</div>
-            <button
-              onClick={() => moveCalendarMonth(1)}
-              className="w-8 h-8 inline-flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50"
-              title="Next month"
-            >
-              <ChevronRight size={16} />
-            </button>
-            <button onClick={() => setShowScheduleModal(true)} className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-brand-600">
-              + Schedule New
-            </button>
-          </div>
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="font-semibold text-gray-800 text-sm">Upcoming Interviews</h3>
+          <button onClick={() => setShowScheduleModal(true)} className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-brand-600">
+            + Schedule New
+          </button>
         </div>
         <div className="overflow-x-auto">
-          <div className="min-w-[760px]">
-            <div className="grid grid-cols-7 bg-gray-50 border-b border-gray-100">
-              {WEEKDAYS.map(day => (
-                <div key={day} className="px-2.5 py-1.5 text-xs font-semibold text-gray-500">{day}</div>
-              ))}
-            </div>
-            {loading ? (
-              <div className="px-5 py-10 text-center text-gray-400 text-sm">Loading...</div>
-            ) : interviews.length === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <Calendar size={28} className="mx-auto text-gray-200 mb-2" />
-                <p className="text-sm text-gray-400">No upcoming interviews</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-7">
-                {calendarDays.map(day => {
-                  const key = dateKey(day);
-                  const dayInterviews = (interviewsByDate[key] ?? []).sort((a, b) =>
-                    new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
-                  );
-                  const isCurrentMonth = day.getMonth() === calendarMonth.getMonth();
-                  const isToday = key === todaysKey;
-
-                  return (
-                    <div key={key} className={`min-h-28 border-r border-b border-gray-100 p-1.5 ${isCurrentMonth ? "bg-white" : "bg-gray-50/60"}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`w-6 h-6 inline-flex items-center justify-center rounded-full text-xs font-semibold ${
-                          isToday ? "bg-brand-500 text-white" : isCurrentMonth ? "text-gray-700" : "text-gray-300"
-                        }`}>
-                          {day.getDate()}
-                        </span>
-                        {dayInterviews.length > 0 && (
-                          <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">
-                            {dayInterviews.length}
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        {dayInterviews.slice(0, 4).map(iv => (
-                          <div key={iv.id} className="rounded-md border border-purple-100 bg-purple-50 px-1.5 py-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[10px] font-bold text-purple-700">{formatTime(iv.scheduled_at)}</span>
-                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                                iv.status === "confirmed" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
-                              }`}>
-                                {iv.status}
-                              </span>
-                            </div>
-                            <p className="text-[11px] font-semibold text-gray-900 truncate mt-0.5">{iv.candidate_name ?? "Unknown candidate"}</p>
-                            <p className="text-[11px] text-gray-500 truncate">
-                              {ROUND_LABELS[iv.round] ?? iv.round}{iv.designation_name ? ` - ${iv.designation_name}` : ""}
-                            </p>
-                            {canViewTeam && <p className="text-[11px] text-gray-400 truncate">{iv.recruiter_name ?? "Unassigned recruiter"}</p>}
-                            {iv.meet_link && (
-                              <a href={iv.meet_link} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-brand-600 hover:underline">
-                                Join
-                              </a>
-                            )}
-                          </div>
-                        ))}
-                        {dayInterviews.length > 4 && (
-                          <div className="text-[11px] text-gray-400 font-medium px-1">+{dayInterviews.length - 4} more</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
@@ -522,7 +395,7 @@ export default function MyActivityPage() {
       </div>
 
       {/* Bottom 2-col grid */}
-      <div className="order-5 grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100">
             <h3 className="font-semibold text-gray-800 text-sm">My Candidates — This Period</h3>
@@ -538,7 +411,7 @@ export default function MyActivityPage() {
                 {loading ? <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400 text-sm">Loading…</td></tr>
                 : candidates.length === 0 ? <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400 text-sm">No candidates added this period</td></tr>
                 : candidates.map(c => (
-                  <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer">
+                  <tr key={c.id} onClick={() => router.push(`/candidates?open=${c.id}&owner=mine`)} className="border-b border-gray-50 hover:bg-brand-50 cursor-pointer">
                     <td className="px-4 py-2.5 font-medium text-gray-900">{c.name}</td>
                     <td className="px-4 py-2.5">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge[c.final_status ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
@@ -569,7 +442,7 @@ export default function MyActivityPage() {
                 {loading ? <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400 text-sm">Loading…</td></tr>
                 : joinings.length === 0 ? <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400 text-sm">No joinings yet</td></tr>
                 : joinings.map(j => (
-                  <tr key={j.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  <tr key={j.id} onClick={() => router.push(`/candidates?open=${j.id}&owner=mine`)} className="border-b border-gray-50 hover:bg-brand-50 cursor-pointer">
                     <td className="px-4 py-2.5 font-medium text-gray-900">{j.name}</td>
                     <td className="px-4 py-2.5 text-green-700 font-semibold">
                       {j.doj_actual ? new Date(j.doj_actual).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}

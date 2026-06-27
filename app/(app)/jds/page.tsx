@@ -10,7 +10,7 @@ type JdTab = "library" | "assessments" | "forms";
 interface JD { id: string; title: string; designation_name?: string; drive_url?: string; version: number; tags?: string[]; updated_at: string; }
 interface Assessment { id: string; title: string; form_url?: string; description?: string; duration_mins?: number; }
 
-type FieldType = "text" | "email" | "phone" | "number" | "date" | "textarea" | "select" | "checkbox" | "file";
+type FieldType = "text" | "email" | "phone" | "number" | "date" | "textarea" | "select" | "checkbox" | "file" | "section";
 interface FormField {
   id: string; type: FieldType; label: string; required: boolean;
   options?: string[];   // for select
@@ -72,6 +72,29 @@ function FieldRow({ field, index, total, onChange, onRemove, onMove }: {
   onMove: (dir: -1 | 1) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+
+  // Sections are visual dividers, not inputs — render a compact bar.
+  if (field.type === "section") {
+    return (
+      <div className="border border-purple-200 bg-purple-50 rounded-lg flex items-center gap-2 px-3 py-2">
+        <div className="flex flex-col gap-0.5">
+          <button onClick={() => onMove(-1)} disabled={index === 0}
+            className="text-purple-300 hover:text-purple-700 disabled:opacity-30"><ChevronUp size={13} /></button>
+          <button onClick={() => onMove(1)} disabled={index === total - 1}
+            className="text-purple-300 hover:text-purple-700 disabled:opacity-30"><ChevronDown size={13} /></button>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">Section</span>
+        <input
+          value={field.label}
+          onChange={e => onChange({ ...field, label: e.target.value })}
+          placeholder="Section title (e.g. Personal Bio-Data)"
+          className="flex-1 bg-white border border-purple-200 rounded px-2 py-1 text-xs font-semibold text-purple-900 outline-none focus:ring-2 focus:ring-purple-400" />
+        <button onClick={onRemove}
+          className="text-purple-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
+      </div>
+    );
+  }
+
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
       {/* Summary row */}
@@ -240,6 +263,9 @@ export default function JDsPage() {
   function addField() {
     setFbFields(prev => [...prev, { id: uid(), type: "text", label: "", required: false, maps_to: null }]);
   }
+  function addSection() {
+    setFbFields(prev => [...prev, { id: uid(), type: "section", label: "New Section", required: false }]);
+  }
   function updateField(idx: number, field: FormField) {
     setFbFields(prev => prev.map((f, i) => i === idx ? field : f));
   }
@@ -314,7 +340,7 @@ export default function JDsPage() {
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === k ? "border-brand-500 text-brand-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-            {l}{k === "forms" && forms.length > 0 && ` (${forms.length})`}
+            {l}{k === "forms" && forms.filter(f => f.type !== "assessment").length > 0 && ` (${forms.filter(f => f.type !== "assessment").length})`}
           </button>
         ))}
       </div>
@@ -353,8 +379,49 @@ export default function JDsPage() {
         </div>
       ) : tab === "assessments" ? (
         // ── Assessments ──
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {assessments.length === 0 ? <div className="col-span-full text-center py-12 text-gray-400">No assessments yet</div>
+        <div className="space-y-6">
+          {/* Built-in Assessment Forms */}
+          {forms.filter(f => f.type === "assessment").length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Assessment Forms</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {forms.filter(f => f.type === "assessment").map(f => (
+                  <div key={f.id} className="bg-white rounded-xl border border-gray-200 p-4 space-y-2.5 hover:shadow-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm truncate">{f.name}</p>
+                        {f.description && <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{f.description}</p>}
+                      </div>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 bg-brand-100 text-brand-700">Assessment</span>
+                    </div>
+                    <p className="text-xs text-gray-400">{f.fields?.length ?? 0} fields · Created {f.created_at.slice(0,10)}</p>
+                    <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
+                      <button onClick={() => openEditForm(f)}
+                        className="text-xs border border-gray-200 px-2.5 py-1 rounded-lg text-gray-600 hover:bg-gray-50">
+                        Edit
+                      </button>
+                      <button onClick={() => shareLink(`${window.location.origin}/f/${f.id}`)}
+                        className="flex items-center gap-1 text-xs border border-blue-200 text-blue-600 px-2.5 py-1 rounded-lg hover:bg-blue-50">
+                        <Copy size={11} /> Share
+                      </button>
+                      <a href={`/f/${f.id}`} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs border border-brand-200 text-brand-600 px-2.5 py-1 rounded-lg hover:bg-brand-50">
+                        <ExternalLink size={11} /> Preview
+                      </a>
+                      <button onClick={() => deleteForm(f.id)}
+                        className="flex items-center gap-1 text-xs border border-red-100 text-red-400 px-2.5 py-1 rounded-lg hover:bg-red-50 ml-auto">
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Legacy Google-Form Assessments */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {assessments.length === 0 && forms.filter(f => f.type === "assessment").length === 0 ? <div className="col-span-full text-center py-12 text-gray-400">No assessments yet</div>
+          : assessments.length === 0 ? null
           : assessments.map(ass => (
             <div key={ass.id} className="bg-white rounded-xl border border-gray-200 p-4 space-y-2 hover:shadow-sm">
               <p className="font-semibold text-gray-900 text-sm">{ass.title}</p>
@@ -387,17 +454,18 @@ export default function JDsPage() {
               </div>
             </div>
           ))}
+          </div>
         </div>
       ) : (
         // ── Forms ──
         <div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {forms.length === 0 ? (
+            {forms.filter(f => f.type !== "assessment").length === 0 ? (
               <div className="col-span-full text-center py-12 text-gray-400">
                 <p>No forms yet.</p>
                 <button onClick={openNewForm} className="mt-2 text-brand-500 hover:underline text-sm">Create your first form →</button>
               </div>
-            ) : forms.map(f => (
+            ) : forms.filter(f => f.type !== "assessment").map(f => (
               <div key={f.id} className="bg-white rounded-xl border border-gray-200 p-4 space-y-2.5 hover:shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -612,6 +680,10 @@ export default function JDsPage() {
                         + Load Application Defaults
                       </button>
                     )}
+                    <button onClick={addSection}
+                      className="flex items-center gap-1 text-xs border border-purple-300 text-purple-700 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100">
+                      <Plus size={12} /> Add Section
+                    </button>
                     <button onClick={addField}
                       className="flex items-center gap-1 text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg hover:bg-brand-600">
                       <Plus size={12} /> Add Field

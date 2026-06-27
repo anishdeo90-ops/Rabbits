@@ -22,14 +22,12 @@ export async function PATCH(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const allowed = ["name"];
   const updates: Record<string, string> = {};
-  for (const key of allowed) {
-    if (body[key] !== undefined) updates[key] = body[key];
-  }
+  if (typeof body.name === "string") updates.name = body.name;
 
-  if (Object.keys(updates).length === 0)
+  if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+  }
 
   const { data, error } = await supabase
     .from("profiles")
