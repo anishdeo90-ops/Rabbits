@@ -37,8 +37,8 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const { data: { session } } = await supabase.auth.getSession();
-  const isLoggedIn = !!session;
+  const { data: { user } } = await supabase.auth.getUser();
+  const isLoggedIn = !!user;
   const isLoginPage = pathname === "/login";
 
   if (!isLoggedIn && !isLoginPage) {
