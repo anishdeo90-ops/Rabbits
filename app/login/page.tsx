@@ -3,25 +3,25 @@
 import { useState } from "react";
 import toast from "react-hot-toast";
 import { HireRabbitsLogo } from "@/components/hirerabbits-logo";
-import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const supabase = createClient();
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
+    const res = await fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
     });
 
-    if (error) {
-      toast.error(error.message);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      toast.error(body?.error ?? "Unable to sign in");
       setLoading(false);
     } else {
       const next = new URLSearchParams(window.location.search).get("next");
