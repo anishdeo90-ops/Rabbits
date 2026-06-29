@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { CheckCircle, AlertCircle, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 
-type FieldType = "text" | "email" | "phone" | "number" | "date" | "textarea" | "select" | "checkbox" | "file" | "section";
+type FieldType = "text" | "email" | "phone" | "number" | "date" | "textarea" | "select" | "radio" | "checkbox" | "file" | "section";
 
 interface FormField {
   id: string;
@@ -67,9 +67,23 @@ export default function PublicFormPage() {
 
   const tabStripRef = useRef<HTMLDivElement>(null);
   const submitLock = useRef(false);
+  const submittedStorageKey = useMemo(
+    () => `public-form-submitted:${formId}:${candidateId ?? "anonymous"}`,
+    [formId, candidateId]
+  );
 
   useEffect(() => {
     if (!formId) return;
+    try {
+      if (window.localStorage.getItem(submittedStorageKey)) {
+        setSubmitted(true);
+        setSavedOk(true);
+        setLoading(false);
+        return;
+      }
+    } catch {
+      // Storage may be unavailable in private or locked-down browsers.
+    }
     fetch(`/api/forms/${formId}`)
       .then(r => r.json())
       .then(({ data, error }) => {
@@ -84,7 +98,7 @@ export default function PublicFormPage() {
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
-  }, [formId]);
+  }, [formId, submittedStorageKey]);
 
   const segments = useMemo(
     () => (form ? buildSegments(form.fields) : []),
@@ -170,6 +184,11 @@ export default function PublicFormPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Submission failed");
+      try {
+        window.localStorage.setItem(submittedStorageKey, "1");
+      } catch {
+        // Submission succeeded; storage failure should not change UX.
+      }
       setSavedOk(true);
       setSubmitting(false);
       setTimeout(() => setSubmitted(true), 1200);
@@ -215,18 +234,6 @@ export default function PublicFormPage() {
     );
   }
 
-  if (notFound || !form) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
-          <h2 className="text-xl font-semibold text-gray-700">Form not found</h2>
-          <p className="text-sm text-gray-500 mt-1">This form may have been removed or the link is incorrect.</p>
-        </div>
-      </div>
-    );
-  }
-
   if (submitted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -234,6 +241,18 @@ export default function PublicFormPage() {
           <CheckCircle className="w-14 h-14 text-green-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-800">Thank you!</h2>
           <p className="text-gray-500 mt-2">Your response has been submitted successfully.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (notFound || !form) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
+          <h2 className="text-xl font-semibold text-gray-700">Form not found</h2>
+          <p className="text-sm text-gray-500 mt-1">This form may have been removed or the link is incorrect.</p>
         </div>
       </div>
     );
@@ -404,6 +423,24 @@ function FieldInput({
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
+      );
+    case "radio":
+      return (
+        <div className="flex flex-col gap-2">
+          {(field.options ?? []).map(opt => (
+            <label key={opt} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input
+                type="radio"
+                name={field.id}
+                value={opt}
+                checked={value === opt}
+                onChange={e => onChange(e.target.value)}
+                className="w-4 h-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>{opt}</span>
+            </label>
+          ))}
+        </div>
       );
     case "checkbox":
       return (
