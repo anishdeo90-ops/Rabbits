@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   // Allow unauthenticated posts for public form submissions
-  const supabase = await createClient();
+  const supabase = await createAdminClient();
   const body = await req.json();
   const { form_id, candidate_id, job_id, responses, respondent_name, respondent_email } = body;
 
