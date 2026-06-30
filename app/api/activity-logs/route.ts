@@ -19,19 +19,31 @@ export async function GET(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  type LogRow = { id: string; action: string; changed_at: string; changed_by: string; old_data: Record<string,unknown>|null; new_data: Record<string,unknown>|null };
+  const logRows = (logs ?? []) as LogRow[];
+
   // Batch fetch profile names
-  const changerIds = Array.from(new Set((logs ?? []).map((l: { changed_by: string }) => l.changed_by).filter(Boolean)));
+  const changerIds = Array.from(new Set(logRows.map((l) => l.changed_by).filter(Boolean)));
   const profileMap: Record<string, string> = {};
   if (changerIds.length > 0) {
     const { data: profiles } = await supabase.from("profiles").select("id,name").in("id", changerIds);
     (profiles ?? []).forEach((p: { id: string; name: string }) => { profileMap[p.id] = p.name; });
   }
 
+  const assignmentIds = Array.from(new Set(logRows.flatMap((log) => {
+    const oldHr = (log.old_data ?? {}).hr_id;
+    const newHr = (log.new_data ?? {}).hr_id;
+    return [oldHr, newHr].filter((value): value is string => typeof value === "string" && value.length > 0);
+  })));
+  const assignmentNameMap: Record<string, string> = {};
+  if (assignmentIds.length > 0) {
+    const { data: assignees } = await supabase.from("profiles").select("id,name").in("id", assignmentIds);
+    (assignees ?? []).forEach((p: { id: string; name: string }) => { assignmentNameMap[p.id] = p.name; });
+  }
+
   const SKIP = new Set(['updated_at','updated_by','custom_data','portal_token','created_at','created_by','is_deleted','deleted_at','deleted_by']);
 
-  type LogRow = { id: string; action: string; changed_at: string; changed_by: string; old_data: Record<string,unknown>|null; new_data: Record<string,unknown>|null };
-
-  const entries = (logs ?? [] as LogRow[]).map((log: LogRow) => {
+  const entries = logRows.map((log: LogRow) => {
     let changes: { field: string; from: string | null; to: string | null }[] = [];
     if (log.action === 'INSERT') {
       changes = [{ field: 'record', from: null, to: 'created' }];
@@ -46,7 +58,10 @@ export async function GET(req: NextRequest) {
         const ov = oldD[k] ?? null;
         const nv = newD[k] ?? null;
         if (String(ov) !== String(nv)) {
-          changes.push({ field: k, from: ov === null ? null : String(ov), to: nv === null ? null : String(nv) });
+          const field = k === "hr_id" ? "assigned recruiter" : k;
+          const from = ov === null ? null : (k === "hr_id" ? assignmentNameMap[String(ov)] ?? String(ov) : String(ov));
+          const to = nv === null ? null : (k === "hr_id" ? assignmentNameMap[String(nv)] ?? String(nv) : String(nv));
+          changes.push({ field, from, to });
         }
       });
     }

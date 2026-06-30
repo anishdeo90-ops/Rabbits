@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import {
   User, Users, List, Brain, Mail, Database, Link2, Bell,
   Shield, CreditCard, Plus, Trash2, Edit2, Check, X,
-  Eye, EyeOff, Copy, RefreshCw, ChevronRight,
+  Eye, EyeOff, Copy, RefreshCw, ChevronRight, Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -17,11 +17,24 @@ interface UserRow {
 }
 interface Master { id: string; type: string; name: string; sort_order: number; is_active: boolean; }
 interface EmailTemplate { id: string; name: string; subject: string; body: string; type: string; is_active: boolean; }
+interface ManualWorkflow {
+  id: string;
+  name: string;
+  description?: string | null;
+  delay_hours?: number | null;
+  drip_interval_minutes?: number | null;
+  is_active: boolean;
+  action_config?: {
+    delay_hours?: number;
+    drip_interval_minutes?: number;
+    dripIntervalMinutes?: number;
+  } | null;
+}
 
 // ── Settings sections ─────────────────────────────────────────────────────────
 type Section =
   | "profile" | "team" | "pipeline" | "masters"
-  | "email_templates" | "integrations" | "notifications"
+  | "email_templates" | "workflows" | "integrations" | "notifications"
   | "ai" | "backup" | "billing";
 
 interface SectionDef { key: Section; label: string; icon: LucideIcon; group: string; adminOnly?: boolean; }
@@ -34,6 +47,7 @@ const SECTIONS: SectionDef[] = [
   { key: "pipeline",        label: "Pipeline Stages",   icon: List,       group: "Workspace", adminOnly: true },
   { key: "masters",         label: "Dropdown Masters",  icon: List,       group: "Workspace", adminOnly: true },
   { key: "email_templates", label: "Email Templates",   icon: Mail,       group: "Workspace", adminOnly: true },
+  { key: "workflows",       label: "Workflows",         icon: Workflow,   group: "Workspace" },
   // Integrations
   { key: "integrations",    label: "Integrations",      icon: Link2,      group: "Integrations" },
   // Advanced
@@ -76,6 +90,14 @@ export default function SettingsPage() {
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
   const [showAddTemplate, setShowAddTemplate] = useState(false);
+
+  // Workflows
+  const [workflows, setWorkflows] = useState<ManualWorkflow[]>([]);
+  const [workflowsLoading, setWorkflowsLoading] = useState(false);
+  const [workflowsError, setWorkflowsError] = useState("");
+  const [editingWorkflow, setEditingWorkflow] = useState<ManualWorkflow | null>(null);
+  const [showAddWorkflow, setShowAddWorkflow] = useState(false);
+  const [workflowSaving, setWorkflowSaving] = useState(false);
 
   // AI settings
   type AIScopeData = { id: string; provider: string; model: string | null; label: string | null; is_active: boolean; last_tested_at: string | null; last_test_ok: boolean | null; key_last4: string; key_masked: string } | null;
@@ -145,6 +167,25 @@ export default function SettingsPage() {
     } finally { setTemplatesLoading(false); }
   }, []);
 
+  const fetchWorkflows = useCallback(async () => {
+    setWorkflowsLoading(true);
+    setWorkflowsError("");
+    try {
+      const res = await fetch("/api/workflows");
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = j.error ?? "Failed to load workflows";
+        setWorkflowsError(message);
+        setWorkflows([]);
+        return;
+      }
+      setWorkflows(j.data ?? j.workflows ?? []);
+    } catch {
+      setWorkflowsError("Failed to load workflows");
+      setWorkflows([]);
+    } finally { setWorkflowsLoading(false); }
+  }, []);
+
   const fetchAISettings = useCallback(async () => {
     setAiSettingsLoading(true);
     try {
@@ -166,9 +207,10 @@ export default function SettingsPage() {
     if (section === "team")            fetchUsers();
     else if (section === "masters")    fetchMasters();
     else if (section === "email_templates") fetchTemplates();
+    else if (section === "workflows")  fetchWorkflows();
     else if (section === "ai")         fetchAISettings();
     else if (section === "integrations") fetchGdriveSettings();
-  }, [section, fetchUsers, fetchMasters, fetchTemplates, fetchAISettings, fetchGdriveSettings]);
+  }, [section, fetchUsers, fetchMasters, fetchTemplates, fetchWorkflows, fetchAISettings, fetchGdriveSettings]);
   useEffect(() => { if (section === "masters") fetchMasters(); }, [dropdownType, fetchMasters, section]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -218,6 +260,39 @@ export default function SettingsPage() {
       body: JSON.stringify(t),
     });
     if (res.ok) { setEditingTemplate(null); setShowAddTemplate(false); fetchTemplates(); toast.success("Template saved"); }
+  }
+
+  async function saveWorkflow(w: ManualWorkflow) {
+    if (!w.name.trim()) { toast.error("Workflow name required"); return; }
+    setWorkflowSaving(true);
+    try {
+      const payload = {
+        id: w.id || undefined,
+        name: w.name.trim(),
+        description: w.description?.trim() || "",
+        delay_hours: Math.max(0, Number(w.delay_hours ?? 0)),
+        drip_interval_minutes: Math.max(1, Number(w.drip_interval_minutes ?? workflowDripMinutes(w))),
+        is_active: Boolean(w.is_active),
+      };
+      const res = await fetch("/api/workflows", {
+        method: w.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        setEditingWorkflow(null);
+        setShowAddWorkflow(false);
+        await fetchWorkflows();
+        toast.success("Workflow saved");
+      } else {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Failed to save workflow");
+      }
+    } finally { setWorkflowSaving(false); }
+  }
+
+  async function toggleWorkflow(w: ManualWorkflow) {
+    await saveWorkflow({ ...w, is_active: !w.is_active });
   }
 
   async function saveAIKey() {
@@ -308,6 +383,7 @@ export default function SettingsPage() {
   };
 
   const isAdmin = profile?.role === "admin" || profile?.role === "hr_manager";
+  const canManageWorkflows = profile?.role === "admin" || profile?.role === "hr_manager" || profile?.role === "hod";
   const visibleSections = SECTIONS.filter(s => !s.adminOnly || isAdmin);
   const groups = Array.from(new Set(visibleSections.map(s => s.group)));
 
@@ -620,6 +696,103 @@ export default function SettingsPage() {
           )}
 
           {/* ══════════════ INTEGRATIONS ══════════════ */}
+          {/* WORKFLOWS */}
+          {section === "workflows" && (
+            <div className="space-y-6">
+              <div className="flex items-start justify-between gap-4">
+                <SectionHeader title="Workflows" desc="Manual follow-up workflows for candidate batches" />
+                {canManageWorkflows && (
+                  <button onClick={() => setShowAddWorkflow(true)} className={btnPrimary}><Plus size={14}/> New Workflow</button>
+                )}
+              </div>
+
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                <p className="text-sm font-semibold text-blue-900">Gmail sending</p>
+                <p className="text-xs text-blue-700 mt-1">
+                  Workflow emails use the connected Gmail account. Candidates without email are skipped during enrollment.
+                </p>
+              </div>
+
+              {workflowsLoading ? <Spinner /> : workflowsError ? (
+                <div className="bg-white rounded-xl border border-red-100 p-5">
+                  <p className="text-sm font-semibold text-red-700">{workflowsError}</p>
+                  <button onClick={fetchWorkflows} className="mt-3 text-xs border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 text-gray-600">
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {workflows.length === 0 && <EmptyState text="No workflows yet" />}
+                  {workflows.map(w => {
+                    const dripMinutes = workflowDripMinutes(w);
+                    const delayHours = workflowDelayHours(w);
+                    return (
+                      <div key={w.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-gray-900 text-sm truncate">{w.name}</p>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                w.is_active ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
+                              }`}>
+                                {w.is_active ? "Active" : "Inactive"}
+                              </span>
+                            </div>
+                            {w.description && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{w.description}</p>}
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                Starts after {delayHours}h
+                              </span>
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                {dripMinutes} min drip
+                              </span>
+                            </div>
+                          </div>
+                          {canManageWorkflows ? (
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button onClick={() => setEditingWorkflow(w)} className="text-xs border border-gray-200 px-2.5 py-1 rounded hover:bg-gray-50 text-gray-500">
+                                Edit
+                              </button>
+                              <button onClick={() => toggleWorkflow(w)}
+                                className={`text-xs px-2.5 py-1 rounded border ${
+                                  w.is_active
+                                    ? "border-red-100 text-red-500 hover:bg-red-50"
+                                    : "border-green-100 text-green-600 hover:bg-green-50"
+                                }`}>
+                                {w.is_active ? "Deactivate" : "Activate"}
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 flex-shrink-0">View only</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {(showAddWorkflow || editingWorkflow) && (
+                <Modal title={editingWorkflow ? "Edit Workflow" : "New Workflow"}
+                  onClose={() => { setEditingWorkflow(null); setShowAddWorkflow(false); }}>
+                  <WorkflowForm
+                    initial={editingWorkflow ?? {
+                      id: "",
+                      name: "",
+                      description: "",
+                      delay_hours: 0,
+                      drip_interval_minutes: 3,
+                      is_active: true,
+                    }}
+                    saving={workflowSaving}
+                    onSave={saveWorkflow}
+                    onCancel={() => { setEditingWorkflow(null); setShowAddWorkflow(false); }}
+                  />
+                </Modal>
+              )}
+            </div>
+          )}
+
           {section === "integrations" && (
             <div className="space-y-6">
               <SectionHeader title="Integrations" desc="Connect external services to automate your workflow" />
@@ -1134,6 +1307,62 @@ function TemplateForm({ initial, onSave, onCancel }: {
 }
 
 // ── AI Features catalogue ─────────────────────────────────────────────────────
+function workflowDripMinutes(w: ManualWorkflow) {
+  return Number(w.drip_interval_minutes ?? w.action_config?.drip_interval_minutes ?? w.action_config?.dripIntervalMinutes ?? 3);
+}
+
+function workflowDelayHours(w: ManualWorkflow) {
+  return Number(w.delay_hours ?? w.action_config?.delay_hours ?? 0);
+}
+
+function WorkflowForm({ initial, saving, onSave, onCancel }: {
+  initial: ManualWorkflow;
+  saving: boolean;
+  onSave: (w: ManualWorkflow) => void;
+  onCancel: () => void;
+}) {
+  const [w, setW] = useState<ManualWorkflow>({
+    ...initial,
+    delay_hours: workflowDelayHours(initial),
+    drip_interval_minutes: workflowDripMinutes(initial),
+  });
+
+  return (
+    <div className="space-y-3">
+      <Field label="Workflow Name">
+        <input value={w.name} onChange={e => setW(p => ({ ...p, name: e.target.value }))} className={inp} />
+      </Field>
+      <Field label="Description">
+        <textarea rows={3} value={w.description ?? ""} onChange={e => setW(p => ({ ...p, description: e.target.value }))}
+          className={`${inp} resize-none`} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Delay Hours">
+          <input type="number" min={0} value={w.delay_hours ?? 0}
+            onChange={e => setW(p => ({ ...p, delay_hours: Number(e.target.value) }))}
+            className={inp} />
+        </Field>
+        <Field label="Drip Interval Minutes">
+          <input type="number" min={1} value={w.drip_interval_minutes ?? 3}
+            onChange={e => setW(p => ({ ...p, drip_interval_minutes: Number(e.target.value) }))}
+            className={inp} />
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={w.is_active} onChange={e => setW(p => ({ ...p, is_active: e.target.checked }))}
+          className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+        Active
+      </label>
+      <div className="flex gap-2 pt-1">
+        <button onClick={() => onSave(w)} disabled={saving || !w.name.trim()} className={btnPrimary}>
+          {saving ? "Saving..." : "Save Workflow"}
+        </button>
+        <button onClick={onCancel} className={btnSecondary}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 const AI_FEATURES = [
   {
     id: "resume_parse",

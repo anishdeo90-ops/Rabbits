@@ -84,6 +84,24 @@ interface Props {
 }
 
 // ── Sheet columns ────────────────────────────────────────────────────────────
+interface ManualWorkflow {
+  id: string;
+  name: string;
+  description?: string | null;
+  is_active?: boolean;
+  action_config?: {
+    drip_interval_minutes?: number;
+    delay_hours?: number;
+  } | null;
+}
+
+interface WorkflowEnrollResult {
+  queued: number;
+  skipped_no_email: number;
+  skipped_duplicate: number;
+  skipped_forbidden: number;
+}
+
 const SHEET_COLS: {
   key: string; label: string; width: number;
   type?: "text" | "date" | "dropdown" | "number" | "url";
@@ -339,6 +357,14 @@ export default function CandidatesClient({
   const [cvModal, setCvModal] = useState<{ candidateId: string; currentUrl: string | null; name: string } | null>(null);
   const [cvPasteUrl, setCvPasteUrl] = useState("");
   const [cvUploading, setCvUploading] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
+  const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
+  const [workflows, setWorkflows] = useState<ManualWorkflow[]>([]);
+  const [workflowsLoading, setWorkflowsLoading] = useState(false);
+  const [workflowsError, setWorkflowsError] = useState("");
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
+  const [enrollingWorkflow, setEnrollingWorkflow] = useState(false);
 
   const toOpts = (arr: string[]) => arr.map(s => ({ id: s, name: s, type: "", sort_order: 0, is_active: true, metadata: {}, created_at: "" }));
   const YN_OPTS   = toOpts(["Yes", "No"]);
@@ -427,7 +453,7 @@ export default function CandidatesClient({
   function scrollCiIntoView(ci: number) {
     const container = tableRef.current;
     if (!container) return;
-    const ROW_NUM_W = 32;
+    const ROW_NUM_W = 44;
     let cellLeft = ROW_NUM_W;
     for (let i = 0; i < ci; i++) cellLeft += SHEET_COLS[i].width;
     const cellRight = cellLeft + SHEET_COLS[ci].width;
@@ -556,6 +582,62 @@ export default function CandidatesClient({
     return result;
   }, [candidates, ownerFilter, profile.id, colFilters, colSort]);
 
+  const selectedCandidates = useMemo(
+    () => visibleCandidates.filter(c => selectedCandidateIds.has(c.id)),
+    [visibleCandidates, selectedCandidateIds],
+  );
+  const noEmailSelectedCount = selectedCandidates.filter(c => !c.email?.trim()).length;
+  const allVisibleSelected = visibleCandidates.length > 0 && visibleCandidates.every(c => selectedCandidateIds.has(c.id));
+  const someVisibleSelected = visibleCandidates.some(c => selectedCandidateIds.has(c.id));
+
+  useEffect(() => {
+    setSelectedCandidateIds(new Set());
+    setSelectionMode(false);
+  }, [
+    search,
+    hrFilter,
+    siteFilter,
+    statusFilter,
+    designFilter,
+    jobFilter,
+    ownerFilter,
+    dateFromFilter,
+    dateToFilter,
+    pipelineStageFilter,
+    forwardToFilter,
+    colFilters,
+  ]);
+
+  useEffect(() => {
+    if (!workflowModalOpen) return;
+    let cancelled = false;
+    async function loadWorkflows() {
+      setWorkflowsLoading(true);
+      setWorkflowsError("");
+      try {
+        const res = await fetch("/api/workflows");
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error ?? "Failed to load workflows");
+        const rows = Array.isArray(json.data) ? json.data : Array.isArray(json.workflows) ? json.workflows : [];
+        const activeRows = rows.filter((workflow: ManualWorkflow) => workflow.is_active !== false);
+        if (!cancelled) {
+          setWorkflows(activeRows);
+          setSelectedWorkflowId(activeRows[0]?.id ?? "");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setWorkflows([]);
+          setSelectedWorkflowId("");
+          setWorkflowsError(err instanceof Error ? err.message : "Failed to load workflows");
+        }
+      } finally {
+        if (!cancelled) setWorkflowsLoading(false);
+      }
+    }
+    loadWorkflows();
+    return () => { cancelled = true; };
+  }, [workflowModalOpen]);
+
   const statusStages = useMemo(() => {
     return optionListWithValues(
       statuses,
@@ -571,6 +653,62 @@ export default function CandidatesClient({
   }
 
   // ── Start edit ───────────────────────────────────────────────────────────
+  function toggleVisibleSelection() {
+    setSelectionMode(true);
+    setSelectedCandidateIds(prev => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleCandidates.forEach(c => next.delete(c.id));
+      } else {
+        visibleCandidates.forEach(c => next.add(c.id));
+      }
+      if (next.size === 0) setSelectionMode(false);
+      return next;
+    });
+  }
+
+  function toggleCandidateSelection(candidateId: string) {
+    setSelectionMode(true);
+    setSelectedCandidateIds(prev => {
+      const next = new Set(prev);
+      if (next.has(candidateId)) next.delete(candidateId);
+      else next.add(candidateId);
+      if (next.size === 0) setSelectionMode(false);
+      return next;
+    });
+  }
+
+  async function startWorkflowEnrollment() {
+    if (!selectedWorkflowId) {
+      toast.error("Select a workflow");
+      return;
+    }
+    setEnrollingWorkflow(true);
+    try {
+      const res = await fetch("/api/workflows/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workflow_id: selectedWorkflowId,
+          candidate_ids: selectedCandidates.map(c => c.id),
+          start_at: null,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Failed to start workflow");
+      const result = json as WorkflowEnrollResult;
+      toast.success(
+        `Queued ${result.queued ?? 0}; skipped ${((result.skipped_no_email ?? 0) + (result.skipped_duplicate ?? 0) + (result.skipped_forbidden ?? 0))}`,
+      );
+      setSelectedCandidateIds(new Set());
+      setWorkflowModalOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start workflow");
+    } finally {
+      setEnrollingWorkflow(false);
+    }
+  }
+
   function startEdit(rowId: string, col: string, overrideValue?: string) {
     const cand   = candidates.find(c => c.id === rowId);
     if (!cand || !canEdit(cand)) return;
@@ -995,6 +1133,29 @@ export default function CandidatesClient({
       </div>
 
       {/* ── View container ── */}
+      {selectedCandidates.length > 0 && (
+        <div className="bg-brand-50 border-b border-brand-100 px-4 py-2 flex items-center gap-2 flex-shrink-0">
+          <span className="text-xs font-semibold text-brand-700">
+            {selectedCandidates.length} selected
+          </span>
+          <button
+            onClick={() => setWorkflowModalOpen(true)}
+            className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-brand-600"
+          >
+            Start Workflow
+          </button>
+          <button
+            onClick={() => {
+              setSelectedCandidateIds(new Set());
+              setSelectionMode(false);
+            }}
+            className="text-xs border border-brand-200 px-3 py-1.5 rounded-lg bg-white text-brand-600 hover:bg-brand-50"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-hidden">
 
         {/* ════════════════ SHEET VIEW ════════════════ */}
@@ -1009,7 +1170,37 @@ export default function CandidatesClient({
             <table className="border-collapse text-xs" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <thead className="sticky top-8 z-10">
                 <tr className="bg-gray-50">
-                  <th className="border-b-2 border-r border-gray-200 px-2 py-2 bg-gray-50" style={{ width: 32 }}>#</th>
+                  <th className="border-b-2 border-r border-gray-200 px-2 py-2 bg-gray-50 text-center" style={{ width: 44 }}>
+                    {selectionMode ? (
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        ref={el => {
+                          if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
+                        }}
+                        onChange={toggleVisibleSelection}
+                        onClick={e => e.stopPropagation()}
+                        onKeyDown={e => e.stopPropagation()}
+                        disabled={visibleCandidates.length === 0}
+                        className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                        aria-label="Select visible candidates"
+                        title="Select all visible candidates"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setSelectionMode(true);
+                        }}
+                        className="text-xs font-semibold text-gray-500 hover:text-brand-600"
+                        title="Show selection checkboxes"
+                        aria-label="Show selection checkboxes"
+                      >
+                        #
+                      </button>
+                    )}
+                  </th>
                   {SHEET_COLS.map(col => {
                     const hasFilter = !!colFilters[col.key];
                     const isSorted = colSort?.key === col.key;
@@ -1072,7 +1263,22 @@ export default function CandidatesClient({
                   const editable = canEdit(cand);
                   return (
                     <tr key={cand.id} className={`border-b border-gray-100 ${isSaving ? "opacity-50" : ""}`}>
-                      <td className="border-r border-gray-100 px-2 py-1 text-gray-400 select-none text-center">{ri + 1}</td>
+                      <td className="border-r border-gray-100 px-1 py-1 text-gray-400 select-none text-center">
+                        {selectionMode ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedCandidateIds.has(cand.id)}
+                            onClick={e => e.stopPropagation()}
+                            onMouseDown={e => e.stopPropagation()}
+                            onKeyDown={e => e.stopPropagation()}
+                            onChange={() => toggleCandidateSelection(cand.id)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                            aria-label={`Select ${cand.name}`}
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-400">{ri + 1}</span>
+                        )}
+                      </td>
                       {SHEET_COLS.map((col, ci) => {
                         const isEditing  = editing?.rowId === cand.id && editing?.col === col.key;
                         const isSelected = sel?.ri === ri && sel?.ci === ci && !isEditing;
@@ -1587,6 +1793,112 @@ export default function CandidatesClient({
       )}
 
       {/* ── CV Upload / Link Modal ── */}
+      {workflowModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Start Workflow</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {selectedCandidates.length} candidate{selectedCandidates.length === 1 ? "" : "s"} selected
+                </p>
+              </div>
+              <button
+                onClick={() => setWorkflowModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+                disabled={enrollingWorkflow}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4 overflow-y-auto">
+              {noEmailSelectedCount > 0 && (
+                <div className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
+                  {noEmailSelectedCount} selected candidate{noEmailSelectedCount === 1 ? "" : "s"} without email will be skipped.
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Workflow</label>
+                {workflowsLoading ? (
+                  <div className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-2">Loading workflows...</div>
+                ) : workflowsError ? (
+                  <div className="text-xs text-red-600 border border-red-100 bg-red-50 rounded-lg px-3 py-2">{workflowsError}</div>
+                ) : workflows.length === 0 ? (
+                  <div className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-2">No active workflows available.</div>
+                ) : (
+                  <select
+                    value={selectedWorkflowId}
+                    onChange={e => setSelectedWorkflowId(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    {workflows.map(workflow => (
+                      <option key={workflow.id} value={workflow.id}>
+                        {workflow.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-xs text-gray-400 mt-1.5">Gmail must be connected before queued workflow emails can send.</p>
+              </div>
+
+              {selectedWorkflowId && (
+                <div className="border border-gray-100 rounded-lg px-3 py-2 bg-gray-50">
+                  <p className="text-xs font-semibold text-gray-600">
+                    {workflows.find(w => w.id === selectedWorkflowId)?.name}
+                  </p>
+                  {workflows.find(w => w.id === selectedWorkflowId)?.description && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {workflows.find(w => w.id === selectedWorkflowId)?.description}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-2">Selected candidates</p>
+                <div className="border border-gray-100 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto">
+                  {selectedCandidates.slice(0, 25).map(candidate => (
+                    <div key={candidate.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-gray-800 truncate">{candidate.name || "Unnamed candidate"}</p>
+                        <p className="text-xs text-gray-400 truncate">{candidate.email || "No email"}</p>
+                      </div>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap ${STATUS_COLORS[candidate.final_status ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
+                        {candidate.final_status || "No status"}
+                      </span>
+                    </div>
+                  ))}
+                  {selectedCandidates.length > 25 && (
+                    <div className="px-3 py-2 text-xs text-gray-400">
+                      + {selectedCandidates.length - 25} more
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t">
+              <button
+                onClick={() => setWorkflowModalOpen(false)}
+                className="text-sm text-gray-500 hover:text-gray-700 px-4 py-2"
+                disabled={enrollingWorkflow}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={startWorkflowEnrollment}
+                disabled={enrollingWorkflow || workflowsLoading || workflows.length === 0 || selectedCandidates.length === 0}
+                className="px-5 py-2 text-sm bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-40"
+              >
+                {enrollingWorkflow ? "Starting..." : "Start Workflow"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {cvModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">

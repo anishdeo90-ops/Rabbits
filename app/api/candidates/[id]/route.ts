@@ -110,23 +110,52 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
   if (!profile) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (profile.role === 'hod') {
-    return NextResponse.json({ error: "HODs cannot edit candidate records" }, { status: 403 });
-  }
   const { data: previousCandidate } = await supabase
     .from("candidates")
     .select("*")
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
-  if (profile.role === 'recruiter') {
-    const existing = previousCandidate;
-    if (!existing || (existing.created_by !== user.id && existing.hr_id !== user.id))
-      return NextResponse.json({ error: "You can only edit your own candidates" }, { status: 403 });
+  if (!previousCandidate) {
+    return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
   }
 
   const body = await req.json() as Record<string, unknown>;
   const payload = pickWritableCandidateFields(body);
+  const payloadKeys = Object.keys(payload);
+  const hasAssignmentChange = Object.prototype.hasOwnProperty.call(payload, "hr_id");
+  const nextHrId = typeof payload.hr_id === "string" ? payload.hr_id : null;
+  const assignmentChanged = hasAssignmentChange && nextHrId !== previousCandidate.hr_id;
+
+  if (hasAssignmentChange) {
+    if (!["admin", "hr_manager", "hod"].includes(profile.role)) {
+      return NextResponse.json({ error: "Only HR, HOD, or Admin can reassign candidates" }, { status: 403 });
+    }
+    if (!nextHrId) {
+      return NextResponse.json({ error: "Assigned recruiter is required" }, { status: 400 });
+    }
+
+    const { data: assignee, error: assigneeError } = await supabase
+      .from("profiles")
+      .select("id,role,is_active")
+      .eq("id", nextHrId)
+      .maybeSingle();
+
+    if (assigneeError) return NextResponse.json({ error: assigneeError.message }, { status: 500 });
+    if (!assignee || assignee.role !== "recruiter" || !assignee.is_active) {
+      return NextResponse.json({ error: "Assigned user must be an active recruiter" }, { status: 400 });
+    }
+  }
+
+  if (profile.role === "hod" && (payloadKeys.length !== 1 || !hasAssignmentChange)) {
+    return NextResponse.json({ error: "HODs can only reassign candidates" }, { status: 403 });
+  }
+
+  if (profile.role === 'recruiter') {
+    const existing = previousCandidate;
+    if (existing.hr_id !== user.id)
+      return NextResponse.json({ error: "You can only edit your own candidates" }, { status: 403 });
+  }
 
   const { data, error } = await supabase
     .from("candidates")
@@ -136,6 +165,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (assignmentChanged) {
+    const { error: logError } = await supabase
+      .from("activity_log")
+      .insert({
+        table_name: "candidates",
+        record_id: id,
+        action: "UPDATE",
+        changed_by: user.id,
+        old_data: { hr_id: previousCandidate.hr_id ?? null },
+        new_data: { hr_id: data.hr_id ?? null },
+      });
+    if (logError) console.error("Failed to log candidate reassignment:", logError);
+  }
   if (typeof payload.final_status === "string" && payload.final_status !== previousCandidate?.final_status) {
     await enqueueStageChangeTriggers(id, payload.final_status, previousCandidate);
   }

@@ -153,18 +153,7 @@ export async function GET(req: NextRequest) {
     .range(offset, offset + limit - 1);
 
   if (profile?.role === "recruiter") {
-    const { data: assignedJobs } = await supabase
-      .from("job_recruiters")
-      .select("job_id")
-      .eq("recruiter_id", user.id);
-
-    const jobIds = (assignedJobs ?? [])
-      .map((job: { job_id: string }) => job.job_id)
-      .filter(Boolean);
-
-    const parts = [`hr_id.eq.${user.id}`, `created_by.eq.${user.id}`];
-    if (jobIds.length > 0) parts.push(`job_id.in.(${jobIds.join(",")})`);
-    query = query.or(parts.join(","));
+    query = query.eq("hr_id", user.id);
   }
 
   if (hrId) query = query.eq("hr_id", hrId);

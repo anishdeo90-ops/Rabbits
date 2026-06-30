@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, createContext, useContext, useRef } from "react";
-import { X, ExternalLink, Trash2, Save, AlertTriangle, UserPlus, Mail, MessageSquare, Phone, Upload, FileText, Calendar, Video, Plus, Send, Paperclip, Sparkles, ChevronDown, ChevronUp, Lock, Unlock, CheckCircle, Share2, ArrowRightCircle, Download } from "lucide-react";
-import type { Candidate, CoSourcer, Master, Profile, CandidateOffer } from "@/lib/types";
+import { X, ExternalLink, Trash2, Save, AlertTriangle, Mail, MessageSquare, Phone, Upload, FileText, Calendar, Video, Plus, Send, Paperclip, Sparkles, ChevronDown, ChevronUp, Lock, Unlock, CheckCircle, Share2, ArrowRightCircle, Download } from "lucide-react";
+import type { Candidate, Master, Profile, CandidateOffer } from "@/lib/types";
 import { computeCTC, CTC_SYSTEM_TEMPLATES, generateOfferLetterHTML, type CTCBreakdown } from "@/lib/ctc";
 import toast from "react-hot-toast";
 
@@ -167,10 +167,10 @@ interface Props {
 export default function DetailPanel({ candidateId, profile, sites, designations, sources, recruiters, onClose, onUpdated }: Props) {
   const [tab, setTab]           = useState<Tab>("overview");
   const [cand, setCand]         = useState<Candidate | null>(null);
-  const [coSourcers, setCoSourcers] = useState<CoSourcer[]>([]);
   const [form, setForm]         = useState<Partial<Candidate>>({});
   const [saving, setSaving]     = useState(false);
   const [dirty, setDirty]       = useState(false);
+  const [reassigning, setReassigning] = useState(false);
 
   // Notes
   const [note, setNote] = useState("");
@@ -233,11 +233,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   const [deleteNotes, setDeleteNotes]         = useState("");
   const [deleting, setDeleting]               = useState(false);
 
-  // Co-sourcer
-  const [showCoSourcerModal, setShowCoSourcerModal] = useState(false);
-  const [coSourcerRecruiter, setCoSourcerRecruiter] = useState("");
-  const [linkingCoSourcer, setLinkingCoSourcer]     = useState(false);
-
   // Forward / handoff
   const [showForwardModal, setShowForwardModal]   = useState(false);
   const [forwardToUserId, setForwardToUserId]     = useState("");
@@ -250,10 +245,12 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   const [completing, setCompleting]               = useState(false);
 
   const isAdmin = ["admin", "hr_manager"].includes(profile.role);
+  const canManageAssignment = ["admin", "hr_manager", "hod"].includes(profile.role);
   // canEdit is false when the current tab is locked by an active forward
   const tabLocked = activeForward !== null && !activeForward.unlocked_tabs.includes(tab);
-  const canEdit = !tabLocked;
-  const canDelete = isAdmin || (!cand ? true : cand.created_by === profile.id || cand.hr_id === profile.id);
+  const canEdit = !tabLocked && profile.role !== "hod";
+  const canReassignCandidate = !tabLocked && canManageAssignment;
+  const canDelete = isAdmin || (!cand ? true : cand.hr_id === profile.id);
 
   const fetchCandidate = useCallback(async () => {
     try {
@@ -261,10 +258,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
       if (!res.ok) return;
       const json = await res.json();
       setCand(json.data); setForm(json.data);
-      const csRes = await fetch(`/api/co-sourcers?candidate_id=${candidateId}`);
-      if (!csRes.ok) return;
-      const csJson = await csRes.json();
-      setCoSourcers(csJson.data ?? []);
     } catch (e) {
       // Transient network / HMR-abort; surfaces as "Failed to fetch". Silent retry on next mount.
       console.warn("fetchCandidate failed:", e);
@@ -474,22 +467,38 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     }
   }
 
-  async function linkCoSourcer() {
-    if (!coSourcerRecruiter || !cand) return;
-    setLinkingCoSourcer(true);
-    try {
-      const res = await fetch("/api/co-sourcers", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidate_id: cand.id, recruiter_id: coSourcerRecruiter }),
-      });
-      if (res.ok) { toast.success("Co-sourcer linked"); setShowCoSourcerModal(false); setCoSourcerRecruiter(""); fetchCandidate(); }
-      else { const err = await res.json(); toast.error(err.error ?? "Failed"); }
-    } finally { setLinkingCoSourcer(false); }
-  }
+  async function reassignCandidate(nextRecruiterId: string) {
+    if (!cand || !canReassignCandidate || !nextRecruiterId || nextRecruiterId === cand.hr_id) return;
 
-  async function removeCoSourcer(id: string) {
-    const res = await fetch(`/api/co-sourcers?id=${id}`, { method: "DELETE" });
-    if (res.ok) { fetchCandidate(); toast.success("Removed"); }
+    const previous = cand;
+    const nextRecruiter = recruiters.find(r => r.id === nextRecruiterId);
+    setReassigning(true);
+    setCand(prev => prev ? { ...prev, hr_id: nextRecruiterId, hr_name: nextRecruiter?.name ?? prev.hr_name } : prev);
+    setForm(prev => ({ ...prev, hr_id: nextRecruiterId, hr_name: nextRecruiter?.name ?? prev.hr_name }));
+    try {
+      const res = await fetch(`/api/candidates/${cand.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hr_id: nextRecruiterId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setCand(previous);
+        setForm(previous);
+        toast.error(err.error ?? "Reassignment failed");
+        return;
+      }
+      toast.success("Assigned recruiter updated");
+      onUpdated();
+      await fetchCandidate();
+      if (tab === "history") await fetchHistory();
+    } catch {
+      setCand(previous);
+      setForm(previous);
+      toast.error("Reassignment failed");
+    } finally {
+      setReassigning(false);
+    }
   }
 
   async function saveDocChecklist(key: string, checked: boolean) {
@@ -746,7 +755,11 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   );
 
   const customData = (cand.custom_data as Record<string, unknown>) ?? {};
-  const coSourcerList = coSourcers.filter(cs => cs.role === "co_sourcer");
+  const activeRecruiters = recruiters.filter(r => r.role === "recruiter" && r.is_active);
+  const assignedRecruiter = recruiters.find(r => r.id === cand.hr_id);
+  const recruiterOptions = assignedRecruiter && !activeRecruiters.some(r => r.id === assignedRecruiter.id)
+    ? [assignedRecruiter, ...activeRecruiters]
+    : activeRecruiters;
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview",   label: "Overview"    },
@@ -796,9 +809,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
               <p className="text-xs text-gray-400 mt-0.5 truncate">
                 {cand.designation_name} · {cand.site_name} · {cand.hr_name}
               </p>
-              {coSourcerList.length > 0 && (
-                <p className="text-xs text-brand-500 mt-0.5">Co-sourced: {coSourcerList.map(cs => cs.recruiter_name).join(", ")}</p>
-              )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               {/* Forward / send candidate to higher manager */}
@@ -933,25 +943,23 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                     "Active Employee","Not Yet Processed","Other","Dropped By Candidate",
                   ].map(s => ({ value: s, label: s }))} />
                 </Field>
-              </div>
-              {/* Co-sourcing */}
-              <div className="bg-brand-50 border border-brand-200 rounded-xl p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-brand-700">Co-sourcing</p>
-                  {canEdit && (
-                    <button onClick={() => setShowCoSourcerModal(true)}
-                      className="text-xs text-brand-600 border border-brand-300 px-2 py-1 rounded hover:bg-brand-100 flex items-center gap-1">
-                      <UserPlus size={11} /> Link
-                    </button>
-                  )}
-                </div>
-                {coSourcerList.length === 0 && <p className="text-xs text-gray-400">No co-sourcers linked</p>}
-                {coSourcerList.map(cs => (
-                  <div key={cs.id} className="flex items-center justify-between text-xs text-gray-600 py-0.5">
-                    <span>Co-sourcer: <strong>{cs.recruiter_name}</strong></span>
-                    {isAdmin && <button onClick={() => removeCoSourcer(cs.id)} className="text-red-400 hover:text-red-600 ml-2">✕</button>}
-                  </div>
-                ))}
+                <Field label="Assigned Recruiter">
+                  <select
+                    value={cand.hr_id ?? ""}
+                    disabled={!canReassignCandidate || reassigning}
+                    onChange={e => reassignCandidate(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-1.5 text-sm outline-none h-[34px] ${
+                      !canReassignCandidate
+                        ? "bg-gray-50 text-gray-400 cursor-default border-gray-100"
+                        : "border-gray-200 focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                    }`}
+                  >
+                    <option value="">-- Select recruiter --</option>
+                    {recruiterOptions.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </Field>
               </div>
             </>
           )}
@@ -2231,31 +2239,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
         </div>
       )}
 
-      {/* ── Co-Sourcer Modal ── */}
-      {showCoSourcerModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowCoSourcerModal(false)} />
-          <div className="relative bg-white rounded-2xl p-6 w-80 shadow-2xl z-10">
-            <h3 className="font-bold text-gray-900 text-base mb-4">Link Co-sourcer</h3>
-            <label className="text-xs text-gray-500 font-medium block mb-1">Select Recruiter</label>
-            <select value={coSourcerRecruiter} onChange={e => setCoSourcerRecruiter(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 mb-4">
-              <option value="">— Select —</option>
-              {recruiters.filter(r => r.id !== profile.id && r.id !== cand.hr_id).map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-            <div className="flex gap-2">
-              <button onClick={linkCoSourcer} disabled={!coSourcerRecruiter || linkingCoSourcer}
-                className="flex-1 bg-brand-500 text-white py-2 rounded-lg text-sm font-semibold hover:bg-brand-600 disabled:opacity-60">
-                {linkingCoSourcer ? "Linking…" : "Link"}
-              </button>
-              <button onClick={() => setShowCoSourcerModal(false)}
-                className="flex-1 border border-gray-200 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
     </PanelContext.Provider>
   );
