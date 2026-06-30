@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Settings, LogOut,
   Briefcase, FileText, Activity, ChevronLeft, ChevronRight, ClipboardList, HandshakeIcon,
-  Menu, X, Bell,
+  Menu, X, Bell, User, List, Mail, Workflow, Link2, Brain, Database, CreditCard,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { HireRabbitsLogo } from "@/components/hirerabbits-logo";
@@ -23,6 +23,20 @@ const NAV = [
   { href: "/jds",         icon: FileText,         label: "JDs & Forms",       roles: ["admin", "hr_manager"] },
 ];
 
+const SETTINGS_NAV = [
+  { href: "/settings#profile", label: "My Profile", icon: User, key: "profile" },
+  { href: "/settings#notifications", label: "Notifications", icon: Bell, key: "notifications" },
+  { href: "/settings#team", label: "Team & Users", icon: Users, key: "team", adminOnly: true },
+  { href: "/settings#pipeline", label: "Pipeline Stages", icon: List, key: "pipeline", adminOnly: true },
+  { href: "/settings#masters", label: "Dropdown Masters", icon: List, key: "masters", adminOnly: true },
+  { href: "/settings#email_templates", label: "Email Templates", icon: Mail, key: "email_templates", adminOnly: true },
+  { href: "/settings#workflows", label: "Workflows", icon: Workflow, key: "workflows" },
+  { href: "/settings#integrations", label: "Integrations", icon: Link2, key: "integrations" },
+  { href: "/settings#ai", label: "AI & Automation", icon: Brain, key: "ai" },
+  { href: "/settings#backup", label: "Backup & Security", icon: Database, key: "backup", adminOnly: true },
+  { href: "/settings#billing", label: "Billing & Plan", icon: CreditCard, key: "billing", adminOnly: true },
+];
+
 interface SidebarProps { profile: Profile }
 
 export default function Sidebar({ profile }: SidebarProps) {
@@ -30,6 +44,8 @@ export default function Sidebar({ profile }: SidebarProps) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const [activeSettingsSection, setActiveSettingsSection] = useState("profile");
   const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchUnread = useCallback(async () => {
@@ -58,9 +74,24 @@ export default function Sidebar({ profile }: SidebarProps) {
     if (!item.roles) return true;
     return item.roles.includes(profile.role);
   });
+  const isAdmin = profile.role === "admin" || profile.role === "hr_manager";
+  const visibleSettingsNav = SETTINGS_NAV.filter((item) => !item.adminOnly || isAdmin);
+
+  useEffect(() => {
+    const syncActiveSettings = () => {
+      setActiveSettingsSection(window.location.hash.replace("#", "") || "profile");
+    };
+
+    syncActiveSettings();
+    window.addEventListener("hashchange", syncActiveSettings);
+    return () => window.removeEventListener("hashchange", syncActiveSettings);
+  }, [pathname]);
 
   // Auto-close the mobile drawer after a nav click
-  const closeMobile = () => setMobileOpen(false);
+  const closeMobile = () => {
+    setMobileOpen(false);
+    setMobileSettingsOpen(false);
+  };
 
   return (
     <>
@@ -180,7 +211,7 @@ export default function Sidebar({ profile }: SidebarProps) {
             href="/settings"
             onClick={closeMobile}
             className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+              "hidden lg:flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
               pathname.startsWith("/settings")
                 ? "bg-brand-500 text-white"
                 : "text-gray-400 hover:text-white hover:bg-gray-800"
@@ -190,6 +221,46 @@ export default function Sidebar({ profile }: SidebarProps) {
             <Settings size={18} className="flex-shrink-0" />
             {!collapsed && "Settings"}
           </Link>
+          <button
+            type="button"
+            onClick={() => setMobileSettingsOpen((open) => !open)}
+            className={cn(
+              "lg:hidden flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full",
+              pathname.startsWith("/settings")
+                ? "bg-brand-500 text-white"
+                : "text-gray-400 hover:text-white hover:bg-gray-800"
+            )}
+          >
+            <Settings size={18} className="flex-shrink-0" />
+            <span>Settings</span>
+            <ChevronRight
+              size={14}
+              className={cn("ml-auto transition-transform", mobileSettingsOpen && "rotate-90")}
+            />
+          </button>
+          {mobileSettingsOpen && (
+            <div className="lg:hidden ml-4 mt-1 space-y-1 border-l border-gray-700 pl-2">
+              {visibleSettingsNav.map((item) => {
+                const active = pathname.startsWith("/settings") && activeSettingsSection === item.key;
+                return (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    onClick={closeMobile}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors",
+                      active
+                        ? "bg-brand-500/15 text-brand-200"
+                        : "text-gray-400 hover:bg-gray-800 hover:text-white"
+                    )}
+                  >
+                    <item.icon size={14} className="flex-shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
 
           {!collapsed && (
             <div className="px-3 py-2">

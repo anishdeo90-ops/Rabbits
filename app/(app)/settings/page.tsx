@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import toast from "react-hot-toast";
 import {
   User, Users, List, Brain, Mail, Database, Link2, Bell,
@@ -384,15 +384,35 @@ export default function SettingsPage() {
 
   const isAdmin = profile?.role === "admin" || profile?.role === "hr_manager";
   const canManageWorkflows = profile?.role === "admin" || profile?.role === "hr_manager" || profile?.role === "hod";
-  const visibleSections = SECTIONS.filter(s => !s.adminOnly || isAdmin);
-  const groups = Array.from(new Set(visibleSections.map(s => s.group)));
+  const visibleSections = useMemo(() => SECTIONS.filter(s => !s.adminOnly || isAdmin), [isAdmin]);
+  const groups = useMemo(() => Array.from(new Set(visibleSections.map(s => s.group))), [visibleSections]);
+
+  useEffect(() => {
+    const syncSectionFromHash = () => {
+      const requestedSection = window.location.hash.replace("#", "");
+      if (visibleSections.some(s => s.key === requestedSection)) {
+        setSection(requestedSection as Section);
+      }
+    };
+
+    syncSectionFromHash();
+    window.addEventListener("hashchange", syncSectionFromHash);
+    return () => window.removeEventListener("hashchange", syncSectionFromHash);
+  }, [visibleSections]);
+
+  function selectSection(requestedSection: Section) {
+    setSection(requestedSection);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${requestedSection}`);
+    }
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
 
       {/* ── Settings Left Nav ── */}
-      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-y-auto">
+      <aside className="hidden w-56 bg-white border-r border-gray-200 flex-col flex-shrink-0 overflow-y-auto md:flex">
         <div className="px-5 py-5 border-b border-gray-100">
           <h1 className="text-base font-bold text-gray-900">Settings</h1>
           <p className="text-xs text-gray-400 mt-0.5">Workspace & account</p>
@@ -402,7 +422,7 @@ export default function SettingsPage() {
             <div key={group}>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 mb-1">{group}</p>
               {visibleSections.filter(s => s.group === group).map(s => (
-                <button key={s.key} onClick={() => setSection(s.key)}
+                <button key={s.key} onClick={() => selectSection(s.key)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
                     section === s.key
                       ? "bg-brand-50 text-brand-700 font-semibold"
@@ -419,21 +439,21 @@ export default function SettingsPage() {
       </aside>
 
       {/* ── Content Area ── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-8 py-8">
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <div className="w-full max-w-3xl mx-auto px-4 py-5 sm:px-6 md:px-8 md:py-8">
 
           {/* ══════════════ PROFILE ══════════════ */}
           {section === "profile" && (
             <div className="space-y-6">
               <SectionHeader title="My Profile" desc="Update your name and account preferences" />
-              <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+              <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4 md:p-6">
                 <div className="flex items-center gap-4 pb-4 border-b border-gray-100">
                   <div className="w-14 h-14 rounded-full bg-brand-500 flex items-center justify-center text-white font-bold text-xl">
                     {profileForm.name?.[0]?.toUpperCase() ?? "?"}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-semibold text-gray-900">{profileForm.name || "—"}</p>
-                    <p className="text-sm text-gray-400">{profileForm.email}</p>
+                    <p className="truncate text-sm text-gray-400">{profileForm.email}</p>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full mt-1 inline-block ${roleBadge(profile?.role ?? "")}`}>
                       {profile?.role?.replace("_"," ")}
                     </span>
@@ -450,7 +470,7 @@ export default function SettingsPage() {
                     className="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-400 cursor-default" />
                   <p className="text-xs text-gray-400 mt-1">Email cannot be changed. Contact admin to update.</p>
                 </div>
-                <div className="flex gap-3 pt-2">
+                <div className="flex flex-col gap-3 pt-2 sm:flex-row">
                   <button onClick={saveProfile} disabled={profileSaving}
                     className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-60">
                     {profileSaving ? "Saving…" : "Save Changes"}
@@ -477,14 +497,14 @@ export default function SettingsPage() {
                   { key: "joining_alert",       label: "Joining date alert",           desc: "3 days before expected DOJ" },
                   { key: "weekly_report",       label: "Weekly summary report",        desc: "Every Monday — pipeline overview" },
                 ].map(item => (
-                  <div key={item.key} className="flex items-center justify-between px-5 py-4">
-                    <div>
+                  <div key={item.key} className="flex items-center justify-between gap-4 px-4 py-4 sm:px-5">
+                    <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">{item.label}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{item.desc}</p>
                     </div>
                     <button
                       onClick={() => setNotifPrefs(p => ({...p, [item.key]: !p[item.key as keyof typeof p]}))}
-                      className={`relative w-10 h-6 rounded-full transition-colors ${
+                      className={`relative h-6 w-10 flex-shrink-0 rounded-full transition-colors ${
                         notifPrefs[item.key as keyof typeof notifPrefs] ? "bg-brand-500" : "bg-gray-200"
                       }`}>
                       <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
@@ -501,7 +521,7 @@ export default function SettingsPage() {
           {/* ══════════════ TEAM & USERS ══════════════ */}
           {section === "team" && (
             <div className="space-y-6">
-              <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <SectionHeader title="Team & Users" desc="Manage who has access and their roles" />
                 <button onClick={() => setShowAddUser(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
@@ -511,13 +531,13 @@ export default function SettingsPage() {
               {usersLoading ? <Spinner /> : (
                 <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
                   {users.map(u => (
-                    <div key={u.id} className="flex items-center gap-4 px-5 py-4">
+                    <div key={u.id} className="flex flex-wrap items-center gap-3 px-4 py-4 sm:flex-nowrap sm:gap-4 sm:px-5">
                       <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center font-semibold text-gray-600 text-sm flex-shrink-0">
                         {u.name[0]?.toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900">{u.name}</p>
+                          <p className="truncate text-sm font-medium text-gray-900">{u.name}</p>
                           {!u.is_active && <span className="text-xs text-gray-400">(inactive)</span>}
                         </div>
                         <p className="text-xs text-gray-400 truncate">{u.email}</p>
@@ -556,7 +576,7 @@ export default function SettingsPage() {
                     </Field>
                     <Field label="Department (optional)"><input value={newUser.department} onChange={e => setNewUser(p=>({...p,department:e.target.value}))} placeholder="e.g. Engineering" className={inp} /></Field>
                     <p className="text-xs text-gray-400">The user will create their own password from the login page.</p>
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex flex-col gap-2 pt-1 sm:flex-row">
                       <button onClick={addUser} disabled={!newUser.name||!newUser.email} className={btnPrimary + " disabled:opacity-50"}>Create User</button>
                       <button onClick={() => setShowAddUser(false)} className={btnSecondary}>Cancel</button>
                     </div>
@@ -577,7 +597,7 @@ export default function SettingsPage() {
                         <option value="admin">Admin</option>
                       </select>
                     </Field>
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex flex-col gap-2 pt-2 sm:flex-row">
                       <button onClick={() => updateUser(editingUser.id, { name: editUserForm.name, role: editUserForm.role })} className={btnPrimary}>Save</button>
                       <button onClick={() => setEditingUser(null)} className={btnSecondary}>Cancel</button>
                     </div>
@@ -593,7 +613,7 @@ export default function SettingsPage() {
               <SectionHeader title="Pipeline Stages" desc="The candidate journey stages — used across all views" />
               <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
                 {PIPELINE_STATUSES.map((s, i) => (
-                  <div key={s} className="flex items-center gap-3 px-5 py-3">
+                  <div key={s} className="flex items-center gap-3 px-4 py-3 sm:px-5">
                     <span className="text-xs text-gray-400 w-6 text-right">{i + 1}</span>
                     <div className="w-2 h-2 rounded-full bg-brand-400 flex-shrink-0" />
                     <span className="text-sm text-gray-800">{s}</span>
@@ -646,7 +666,7 @@ export default function SettingsPage() {
                   ))}
                 </div>
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <input value={newMasterName} onChange={e => setNewMasterName(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && addMaster()}
                   placeholder={`Add new ${dropdownType}…`}
@@ -659,7 +679,7 @@ export default function SettingsPage() {
           {/* ══════════════ EMAIL TEMPLATES ══════════════ */}
           {section === "email_templates" && (
             <div className="space-y-6">
-              <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <SectionHeader title="Email Templates" desc="Pre-written templates for interview invites, offers, rejections" />
                 <button onClick={() => setShowAddTemplate(true)} className={btnPrimary}><Plus size={14}/> New Template</button>
               </div>
@@ -668,12 +688,12 @@ export default function SettingsPage() {
                   {templates.length === 0 && <EmptyState text="No email templates yet" />}
                   {templates.map(t => (
                     <div key={t.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
                           <p className="font-semibold text-gray-900 text-sm">{t.name}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Subject: {t.subject}</p>
+                          <p className="truncate text-xs text-gray-400 mt-0.5">Subject: {t.subject}</p>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2 sm:flex-nowrap">
                           <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded capitalize">{t.type}</span>
                           <button onClick={() => setEditingTemplate(t)} className="text-xs border border-gray-200 px-2.5 py-1 rounded hover:bg-gray-50 text-gray-500">Edit</button>
                         </div>
@@ -699,7 +719,7 @@ export default function SettingsPage() {
           {/* WORKFLOWS */}
           {section === "workflows" && (
             <div className="space-y-6">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <SectionHeader title="Workflows" desc="Manual follow-up workflows for candidate batches" />
                 {canManageWorkflows && (
                   <button onClick={() => setShowAddWorkflow(true)} className={btnPrimary}><Plus size={14}/> New Workflow</button>
@@ -728,9 +748,9 @@ export default function SettingsPage() {
                     const delayHours = workflowDelayHours(w);
                     return (
                       <div key={w.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <p className="font-semibold text-gray-900 text-sm truncate">{w.name}</p>
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                 w.is_active ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
@@ -749,7 +769,7 @@ export default function SettingsPage() {
                             </div>
                           </div>
                           {canManageWorkflows ? (
-                            <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:flex-shrink-0">
                               <button onClick={() => setEditingWorkflow(w)} className="text-xs border border-gray-200 px-2.5 py-1 rounded hover:bg-gray-50 text-gray-500">
                                 Edit
                               </button>
@@ -815,7 +835,7 @@ export default function SettingsPage() {
                 ) : gdrive && !gdriveEdit ? (
                   /* ── Connected state ── */
                   <div className="px-5 py-4 space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <p className="text-xs text-gray-400 mb-0.5">Service Account</p>
                         <p className="text-xs font-mono text-gray-700 truncate">{gdrive.client_email}</p>
@@ -831,7 +851,7 @@ export default function SettingsPage() {
                         </div>
                       )}
                     </div>
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex flex-col gap-2 pt-1 sm:flex-row">
                       <button onClick={() => setGdriveEdit(true)}
                         className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">
                         Update credentials
@@ -874,7 +894,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <label className="text-xs font-semibold text-gray-600 block mb-1">
                           Drive Folder ID <span className="text-red-500">*</span>
@@ -895,7 +915,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex flex-col gap-2 pt-1 sm:flex-row">
                       {gdriveEdit && (
                         <button onClick={() => setGdriveEdit(false)}
                           className="text-xs px-4 py-2 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50">
@@ -922,7 +942,7 @@ export default function SettingsPage() {
                   { key: "calendar", icon: "📅", label: "Google Calendar", desc: "Auto-create calendar events when interviews are scheduled" },
                   { key: "sheets",   icon: "📊", label: "Google Sheets",   desc: "Two-way sync of candidate data with a master spreadsheet" },
                 ].map(item => (
-                  <div key={item.key} className="flex items-center gap-4 px-5 py-4 border-b border-gray-50 last:border-0">
+                  <div key={item.key} className="flex flex-col gap-3 px-5 py-4 border-b border-gray-50 last:border-0 sm:flex-row sm:items-center sm:gap-4">
                     <span className="text-xl w-8 text-center">{item.icon}</span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">{item.label}</p>
@@ -943,7 +963,7 @@ export default function SettingsPage() {
                   { icon: "🔵", label: "LinkedIn",      desc: "Sync LinkedIn job posts and import applicants",          status: "coming_soon" },
                   { icon: "⚫", label: "Indeed",        desc: "Pull applicants from Indeed job listings",               status: "coming_soon" },
                 ].map(item => (
-                  <div key={item.label} className="flex items-center gap-4 px-5 py-4 border-b border-gray-50 last:border-0">
+                  <div key={item.label} className="flex flex-col gap-3 px-5 py-4 border-b border-gray-50 last:border-0 sm:flex-row sm:items-center sm:gap-4">
                     <span className="text-xl w-8 text-center">{item.icon}</span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">{item.label}</p>
@@ -964,7 +984,7 @@ export default function SettingsPage() {
                   { icon: "📱", label: "SMS / Twilio",      desc: "SMS notifications for candidates without WhatsApp" },
                   { icon: "🔔", label: "Slack",             desc: "Get pipeline alerts in your team Slack workspace" },
                 ].map(item => (
-                  <div key={item.label} className="flex items-center gap-4 px-5 py-4 border-b border-gray-50 last:border-0">
+                  <div key={item.label} className="flex flex-col gap-3 px-5 py-4 border-b border-gray-50 last:border-0 sm:flex-row sm:items-center sm:gap-4">
                     <span className="text-xl w-8 text-center">{item.icon}</span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">{item.label}</p>
@@ -1015,13 +1035,13 @@ export default function SettingsPage() {
 
               {/* ── My Personal AI Key ── */}
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                  <div>
+                <div className="flex flex-col gap-3 bg-gray-50 px-5 py-3.5 border-b border-gray-100 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
                     <p className="font-semibold text-sm text-gray-900">My AI Key</p>
                     <p className="text-xs text-gray-400 mt-0.5">Private to you — only your activity uses this key</p>
                   </div>
                   {aiSettings?.personal && aiEditScope !== "personal" && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 sm:flex-nowrap">
                       <button onClick={() => { setAiEditScope("personal"); setAiForm(p => ({ ...p, scope: "personal", provider: aiSettings.personal!.provider, api_key: "", model: aiSettings.personal!.model ?? "" })); }}
                         className="text-xs border border-gray-200 px-2.5 py-1 rounded-lg text-gray-600 hover:bg-white">Replace</button>
                       <button onClick={() => deleteAIKey("personal")}
@@ -1031,18 +1051,18 @@ export default function SettingsPage() {
                 </div>
                 <div className="p-5">
                   {aiSettings?.personal && aiEditScope !== "personal" ? (
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold
                         ${aiSettings.personal.provider === "anthropic" ? "bg-brand-500" : aiSettings.personal.provider === "openai" ? "bg-green-600" : "bg-blue-500"}`}>
                         {aiSettings.personal.provider === "anthropic" ? "C" : aiSettings.personal.provider === "openai" ? "G" : "G"}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-900">
                           {aiSettings.personal.provider === "anthropic" ? "Claude (Anthropic)" : aiSettings.personal.provider === "openai" ? "ChatGPT (OpenAI)" : "Gemini (Google)"}
                         </p>
                         <p className="text-xs text-gray-400">Key: {aiSettings.personal.key_masked} · Model: {aiSettings.personal.model ?? "default"}</p>
                       </div>
-                      <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Connected</span>
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium sm:ml-auto">Connected</span>
                     </div>
                   ) : aiEditScope === "personal" ? (
                     <AIKeyForm
@@ -1067,13 +1087,13 @@ export default function SettingsPage() {
               {/* ── Org-wide AI Key (admin only) ── */}
               {aiSettings?.is_admin && (
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="px-5 py-3.5 bg-purple-50 border-b border-purple-100 flex items-center justify-between">
-                    <div>
+                  <div className="flex flex-col gap-3 bg-purple-50 px-5 py-3.5 border-b border-purple-100 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
                       <p className="font-semibold text-sm text-purple-900">Organisation AI Key</p>
                       <p className="text-xs text-purple-600 mt-0.5">Shared key — all users who haven&apos;t connected personal keys will use this</p>
                     </div>
                     {aiSettings?.org && aiEditScope !== "org" && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2 sm:flex-nowrap">
                         <button onClick={() => { setAiEditScope("org"); setAiForm(p => ({ ...p, scope: "org", provider: aiSettings.org!.provider, api_key: "", model: aiSettings.org!.model ?? "" })); }}
                           className="text-xs border border-purple-200 px-2.5 py-1 rounded-lg text-purple-700 hover:bg-white">Replace</button>
                         <button onClick={() => deleteAIKey("org")}
@@ -1083,18 +1103,18 @@ export default function SettingsPage() {
                   </div>
                   <div className="p-5">
                     {aiSettings?.org && aiEditScope !== "org" ? (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold
                           ${aiSettings.org.provider === "anthropic" ? "bg-brand-500" : aiSettings.org.provider === "openai" ? "bg-green-600" : "bg-blue-500"}`}>
                           {aiSettings.org.provider === "anthropic" ? "C" : "G"}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-900">
                             {aiSettings.org.provider === "anthropic" ? "Claude (Anthropic)" : aiSettings.org.provider === "openai" ? "ChatGPT (OpenAI)" : "Gemini (Google)"}
                           </p>
                           <p className="text-xs text-gray-400">Key: {aiSettings.org.key_masked} · Model: {aiSettings.org.model ?? "default"}</p>
                         </div>
-                        <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium sm:ml-auto">Active</span>
                       </div>
                     ) : aiEditScope === "org" ? (
                       <AIKeyForm
@@ -1200,14 +1220,14 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <SectionHeader title="Billing & Plan" desc="Manage your subscription and usage" />
               <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                <div className="flex flex-col gap-3 pb-4 border-b border-gray-100 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-gray-900">HireRabbits</p>
                     <p className="text-sm text-gray-400 mt-0.5">Enterprise Plan</p>
                   </div>
                   <span className="bg-green-100 text-green-700 text-sm font-semibold px-3 py-1 rounded-full">Active</span>
                 </div>
-                <div className="grid grid-cols-3 gap-4 py-4">
+                <div className="grid grid-cols-1 gap-4 py-4 sm:grid-cols-3">
                   {[
                     { label: "Users", value: `${users.length}` },
                     { label: "Candidates", value: "Unlimited" },
@@ -1253,9 +1273,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl p-6 w-[480px] shadow-2xl z-10">
+      <div className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-[480px] overflow-y-auto rounded-xl bg-white p-4 shadow-2xl sm:rounded-2xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-gray-900 text-base">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
@@ -1298,7 +1318,7 @@ function TemplateForm({ initial, onSave, onCancel }: {
           placeholder="Use {{candidate_name}}, {{position}}, {{date}}, {{company}} as variables"
           className={`${inp} resize-none`} />
       </Field>
-      <div className="flex gap-2 pt-1">
+      <div className="flex flex-col gap-2 pt-1 sm:flex-row">
         <button onClick={() => onSave(t)} className={btnPrimary}>Save Template</button>
         <button onClick={onCancel} className={btnSecondary}>Cancel</button>
       </div>
@@ -1336,7 +1356,7 @@ function WorkflowForm({ initial, saving, onSave, onCancel }: {
         <textarea rows={3} value={w.description ?? ""} onChange={e => setW(p => ({ ...p, description: e.target.value }))}
           className={`${inp} resize-none`} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Delay Hours">
           <input type="number" min={0} value={w.delay_hours ?? 0}
             onChange={e => setW(p => ({ ...p, delay_hours: Number(e.target.value) }))}
@@ -1353,7 +1373,7 @@ function WorkflowForm({ initial, saving, onSave, onCancel }: {
           className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
         Active
       </label>
-      <div className="flex gap-2 pt-1">
+      <div className="flex flex-col gap-2 pt-1 sm:flex-row">
         <button onClick={() => onSave(w)} disabled={saving || !w.name.trim()} className={btnPrimary}>
           {saving ? "Saving..." : "Save Workflow"}
         </button>
@@ -1488,7 +1508,7 @@ function AIKeyForm({ form, setForm, showKey, setShowKey, saving, onSave, onCance
       {/* Provider selector */}
       <div>
         <label className="text-xs font-medium text-gray-500 block mb-1.5">AI Provider</label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {PROVIDERS.map(p => (
             <button key={p.value}
               onClick={() => setForm(prev => ({ ...prev, provider: p.value, model: "" }))}
@@ -1535,7 +1555,7 @@ function AIKeyForm({ form, setForm, showKey, setShowKey, saving, onSave, onCance
         </select>
       </div>
 
-      <div className="flex gap-2 pt-1">
+      <div className="flex flex-col gap-2 pt-1 sm:flex-row">
         <button onClick={onSave} disabled={saving || !form.api_key.trim()} className={btnP}>
           {saving ? "Saving…" : "Save Key"}
         </button>
@@ -1547,5 +1567,5 @@ function AIKeyForm({ form, setForm, showKey, setShowKey, saving, onSave, onCance
 
 // Shared class strings
 const inp = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500";
-const btnPrimary = "flex items-center gap-1.5 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600";
-const btnSecondary = "px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50";
+const btnPrimary = "flex items-center justify-center gap-1.5 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600";
+const btnSecondary = "px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm font-medium text-center hover:bg-gray-50";

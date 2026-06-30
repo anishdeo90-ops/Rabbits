@@ -193,7 +193,7 @@ No HRMS, payroll, attendance, leave, workflow, or other stale tables are require
 | Notifications | `/notifications` | App notifications |
 | Masters | `/masters` | Lookup data management |
 | Users | `/users` | Team/admin user management |
-| Settings | `/settings` | Google Drive, AI, CTC, and app settings |
+| Settings | `/settings` | Profile, team, masters, email templates, workflows, integrations, AI, backup, billing |
 | Sync | `/sync` | Google Sheets sync tools |
 | HOD Portal | `/hod-portal` | Hiring requests and HOD review |
 | Public Form | `/f/[id]` | Candidate-facing form without login |
@@ -209,6 +209,52 @@ No HRMS, payroll, attendance, leave, workflow, or other stale tables are require
 
 Exact permissions are enforced in route/page code and Supabase-backed user/profile data.
 
+## Candidate Workflows
+
+Manual follow-up workflows are available from the Candidates page and are stored in Supabase.
+
+Main behavior:
+
+- Candidate row selection is hidden by default so the sheet stays clean.
+- Click the `#` column header on `/candidates` to enter selection mode.
+- Select one or more visible candidates.
+- Use `Start Workflow` to open the workflow modal.
+- Choose an active workflow and start it for the selected candidates.
+- Candidates without email are skipped.
+- Duplicate pending enrollments for the same candidate/workflow are skipped.
+- Workflow rows are queued as a drip, not sent all at once.
+
+Workflow data uses existing tables:
+
+```text
+automation_rules
+candidate_followups
+```
+
+No extra workflow table is required for the current implementation. Workflow definitions use `automation_rules.trigger_type = manual_workflow`; queued candidate sends are stored in `candidate_followups`.
+
+Admins, HR managers, and HOD users can create, edit, activate, and deactivate workflows from:
+
+```text
+/settings#workflows
+```
+
+Recruiters can view active workflows and start allowed workflows for candidates they can access.
+
+## Mobile Navigation
+
+Desktop and laptop keep the normal left Settings sidebar.
+
+On mobile:
+
+- Tap the main hamburger menu.
+- Tap `Settings` in the app drawer.
+- Settings expands inside the same drawer and shows its sub-options.
+- Tap a Settings sub-option such as `Workflows`, `Email Templates`, or `AI & Automation`.
+- The drawer closes and the Settings page opens that section using a URL hash such as `/settings#workflows`.
+
+The Settings page does not show a second horizontal section scroller on mobile.
+
 ## Key Runtime Files
 
 ```text
@@ -220,6 +266,7 @@ lib/supabase/server.ts
 lib/types.ts
 lib/candidate-duplicates.ts
 lib/automation/triggers.ts
+lib/workflows/defaults.ts
 ```
 
 API routes live under:
@@ -311,7 +358,9 @@ Public forms do not require login. Responses are stored in Supabase and shown in
 5. Open `/jds` and verify forms/assessments load.
 6. Open a public `/f/[id]` link in a signed-out browser.
 7. Upload a candidate CV if Google Drive is configured.
-8. Run `npm.cmd run build` before deploying code changes.
+8. Open `/settings#workflows` and verify workflows load.
+9. Select candidates from `/candidates` and verify the Start Workflow modal opens.
+10. Run `npm.cmd run build` before deploying code changes.
 
 ## Removed Legacy Stack
 
