@@ -366,6 +366,7 @@ export default function CandidatesClient({
   function buildFetchParams(offset = 0) {
     const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
     if (hrFilter)            p.set("hr_id",           hrFilter);
+    else if (ownerFilter === "mine") p.set("hr_id",   profile.id);
     if (siteFilter)          p.set("site_id",          siteFilter);
     if (statusFilter)        p.set("status",           statusFilter);
     if (designFilter)        p.set("designation_id",   designFilter);
@@ -390,7 +391,7 @@ export default function CandidatesClient({
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hrFilter, siteFilter, statusFilter, designFilter, jobFilter, search, dateFromFilter, dateToFilter, pipelineStageFilter, forwardToFilter]);
+  }, [hrFilter, ownerFilter, profile.id, siteFilter, statusFilter, designFilter, jobFilter, search, dateFromFilter, dateToFilter, pipelineStageFilter, forwardToFilter]);
 
   async function loadMore() {
     if (loadingMore || !hasMore) return;
