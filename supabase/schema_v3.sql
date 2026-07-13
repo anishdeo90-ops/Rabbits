@@ -1,5 +1,5 @@
 -- ============================================================
--- NAVINGROUP ATS — SCHEMA v3
+-- HIRE RABBITS ATS — SCHEMA v3
 -- Run AFTER schema.sql AND schema_update.sql (v2)
 -- ============================================================
 
@@ -444,7 +444,7 @@ WHERE c.is_deleted = false;
 INSERT INTO email_templates (name, subject, body, template_type, variables) VALUES
   ('Offer Letter - Standard',
    'Offer of Employment – {{designation}} at {{company}}',
-   'Dear {{candidate_name}},\n\nWe are pleased to offer you the position of {{designation}} at {{site}}.\n\nYour joining date is {{doj}}. Please confirm your acceptance by replying to this email.\n\nRegards,\n{{hr_name}}\nNavingroup HR',
+   'Dear {{candidate_name}},\n\nWe are pleased to offer you the position of {{designation}} at {{site}}.\n\nYour joining date is {{doj}}. Please confirm your acceptance by replying to this email.\n\nRegards,\n{{hr_name}}\nHire Rabbits HR',
    'offer',
    ARRAY['{{candidate_name}}','{{designation}}','{{company}}','{{site}}','{{doj}}','{{hr_name}}']),
   ('Interview Invitation',
@@ -454,7 +454,7 @@ INSERT INTO email_templates (name, subject, body, template_type, variables) VALU
    ARRAY['{{candidate_name}}','{{designation}}','{{round}}','{{interview_date}}','{{interview_time}}','{{interview_mode}}','{{meet_link}}','{{hr_name}}']),
   ('Rejection - Post PI',
    'Regarding your application for {{designation}}',
-   'Dear {{candidate_name}},\n\nThank you for taking the time to interview with us for the {{designation}} position.\n\nAfter careful consideration, we have decided to move forward with other candidates at this time. We will keep your profile on file for future opportunities.\n\nBest regards,\n{{hr_name}}\nNavingroup HR',
+   'Dear {{candidate_name}},\n\nThank you for taking the time to interview with us for the {{designation}} position.\n\nAfter careful consideration, we have decided to move forward with other candidates at this time. We will keep your profile on file for future opportunities.\n\nBest regards,\n{{hr_name}}\nHire Rabbits HR',
    'rejection',
    ARRAY['{{candidate_name}}','{{designation}}','{{hr_name}}'])
 ON CONFLICT DO NOTHING;

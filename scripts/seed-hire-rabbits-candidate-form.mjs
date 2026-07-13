@@ -1,12 +1,12 @@
-// Seeds the "Candidate Data Form — Navin Group" into the forms table.
+// Seeds the "Candidate Data Form - Hire Rabbits" into the forms table.
 // Idempotent: if a form with the same name already exists, updates its fields
 // instead of inserting a duplicate. Run with:
-//   cd /root/ats-staging && node scripts/seed-navin-candidate-form.mjs
+//   node scripts/seed-hire-rabbits-candidate-form.mjs
 
 import { randomBytes } from 'node:crypto';
 import { createAdminClient, upsertFormByName } from './supabase-script-client.mjs';
 
-const FORM_NAME = 'Candidate Data Form — Navin Group';
+const FORM_NAME = 'Candidate Data Form - Hire Rabbits';
 const FORM_DESC = 'Full candidate data form. Fill each section using the tabs above — your answers are linked to your candidate profile automatically.';
 
 const uid = () => randomBytes(4).toString('hex');

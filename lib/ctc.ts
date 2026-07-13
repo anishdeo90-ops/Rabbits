@@ -165,7 +165,7 @@ export function generateOfferLetterHTML(params: {
 <body>
 
 <div class="header">
-  <div class="logo-text">NAVINGROUP</div>
+  <div class="logo-text">HIRE RABBITS</div>
   <div class="logo-sub">Human Resources Department</div>
 </div>
 

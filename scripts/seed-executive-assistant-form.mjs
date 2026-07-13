@@ -8,7 +8,7 @@ import { createAdminClient, upsertFormByName } from './supabase-script-client.mj
 
 const FORM_NAME = 'Executive Assistant Form - Executive Assistant Cum PA';
 const FORM_TYPE = 'assessment';
-const FORM_DESC = 'Navin Group has diversified business interests in Logistics, Manpower Management, Retail & Ecommerce, Garments, Restaurants & Catering. We are looking for Executive Assistant cum Stenographer for our Ahmedabad HO.\n\nLocation: Ahmedabad | www.navingroup.in';
+const FORM_DESC = 'Hire Rabbits is looking for Executive Assistant cum Stenographer for our Ahmedabad office.\n\nLocation: Ahmedabad';
 
 const uid = () => randomBytes(4).toString('hex');
 

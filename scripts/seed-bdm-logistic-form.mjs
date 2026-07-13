@@ -8,7 +8,7 @@ import { createAdminClient, upsertFormByName } from './supabase-script-client.mj
 
 const FORM_NAME = 'BDM Logistic Form';
 const FORM_TYPE = 'assessment';
-const FORM_DESC = 'NAVIN GROUP, a 60-year-old business house based in Ahmedabad. We are pleased to inform you that you have been shortlisted. For further scrutiny we request you to fill the form and submit.\n\nTeam HR, Navin Group | www.navingroup.in';
+const FORM_DESC = 'Hire Rabbits is pleased to inform you that you have been shortlisted. For further scrutiny we request you to fill the form and submit.\n\nTeam HR, Hire Rabbits';
 
 const uid = () => randomBytes(4).toString('hex');
 

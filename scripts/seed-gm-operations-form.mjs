@@ -9,7 +9,7 @@ import { createAdminClient, upsertFormByName } from './supabase-script-client.mj
 
 const FORM_NAME = 'GM Operation & Administration - General Manager Operation & Administration';
 const FORM_TYPE = 'assessment';
-const FORM_DESC = 'GENERAL MANAGER OPERATIONS AND ADMINISTRATION\n\nNavin Group has diversified business interests in Logistics, Manpower Management, Retail & Ecommerce, Garments, Restaurants & Catering. We are looking for a Operation Manager for our business.\n\nKindly answer all of the below questions truthfully.\n\nwww.navingroup.in';
+const FORM_DESC = 'GENERAL MANAGER OPERATIONS AND ADMINISTRATION\n\nHire Rabbits is looking for an Operation Manager for our business.\n\nKindly answer all of the below questions truthfully.';
 
 const uid = () => randomBytes(4).toString('hex');
 

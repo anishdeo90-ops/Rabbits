@@ -1,9 +1,9 @@
-# NAVINGROUP ATS — Server Guide & Full Reference
+# HIRE RABBITS ATS — Server Guide & Full Reference
 
 > **KEEP THIS FILE PRIVATE. DO NOT COMMIT TO GIT.**
-> Last updated: 2026-06-11 — Staging and production fully synced at HEAD `f9c8689`. AUTH_URL fixed on production (`https://srv1642268.hstgr.cloud`). Staging (`http://91.108.110.236:3001`) remains live for internal use. Backup of pre-sync live at `/var/www/ats.bak-7d378a7`. Cron fires daily at 19:00 → `/var/www/ats/reports/daily-report.mjs` (Telegram + email to Anish + Rohan).
+> Stale as of 2026-07-13 - this file describes the old server/VPS setup. Use `USER_MANUAL.md` for the current Vercel production app (`https://rabbits-xi.vercel.app`).
 
-This is the single source of truth for the NavinGroup ATS deployment: what runs where, every credential, what we achieved, and how to do every common operation (add a user, reset a password, deploy a change, roll back, etc.).
+This is the single source of truth for the Hire Rabbits ATS deployment: what runs where, every credential, what we achieved, and how to do every common operation (add a user, reset a password, deploy a change, roll back, etc.).
 
 ---
 
@@ -121,7 +121,7 @@ tail -20 /tmp/staging-dev.log   # see the last compile status
    - 9.15 [Run the Staging Dev Server](#915-run-the-staging-dev-server)
    - 9.16 [Manual SQL: Bcrypt a Password](#916-manual-sql-bcrypt-a-password)
    - 9.17 [Refresh Local Postgres from Supabase](#917-refresh-local-postgres-from-supabase)
-   - 9.18 [Seed / Refresh the Navin Group Candidate Data Form](#918-seed--refresh-the-navin-group-candidate-data-form)
+   - 9.18 [Seed / Refresh the Hire Rabbits Candidate Data Form](#918-seed--refresh-the-hire-rabbits-candidate-data-form)
 10. [Data Snapshot](#10-data-snapshot)
 11. [Phase Tracker](#11-phase-tracker)
 12. [Things to Rotate / Fix](#12-things-to-rotate--fix)
@@ -165,7 +165,7 @@ tail -20 /tmp/staging-dev.log   # see the last compile status
 - Browser login as `mis1.hirerabbits@gmail.com` → dashboard renders
 - Sign Out button (after BUG-4 fix) → clears `authjs.session-token`, redirects to /login
 
-**Forms System — staging-only (2026-05-15):** `/f/[id]` rewritten with tabbed sections (one section visible at a time, Back / Next / Submit, per-tab validation badges). Form builder at `/jds` gained a **+ Add Section** button. Public fill URL accepts `?c=<candidateId>` → submission auto-links to the candidate. Candidate sidebar Forms tab "Copy Link" / "Send via Email" buttons embed `?c=` automatically. Seeded *Candidate Data Form — Navin Group* (14 sections, 139 fields) — see [§8 Forms System](#forms-system-jds--forms-tab--candidate-forms-sidebar) and [§9.18](#918-seed--refresh-the-navin-group-candidate-data-form).
+**Forms System — staging-only (2026-05-15):** `/f/[id]` rewritten with tabbed sections (one section visible at a time, Back / Next / Submit, per-tab validation badges). Form builder at `/jds` gained a **+ Add Section** button. Public fill URL accepts `?c=<candidateId>` → submission auto-links to the candidate. Candidate sidebar Forms tab "Copy Link" / "Send via Email" buttons embed `?c=` automatically. Seeded *Candidate Data Form — Hire Rabbits* (14 sections, 139 fields) — see [§8 Forms System](#forms-system-jds--forms-tab--candidate-forms-sidebar) and [§9.18](#918-seed--refresh-the-hire-rabbits-candidate-data-form).
 
 **2B.10 close-out — DONE (2026-05-08).** Commit `649285f` on `phase-2b-nextauth` carries:
 - `app/(app)/layout.tsx` — replaced the synthesized-from-JWT profile with a real `createAdminClient().from("profiles").select("*").eq("id", session.user.id).single()` lookup (Phase 2C TODO landed early); kept the synthesized object as a fallback so a missing profiles row never causes a /login redirect loop. Also fixed `avatar_url: null` → `undefined` and dropped the non-existent `phone:` field.
@@ -528,7 +528,7 @@ ATSDashboard/                           ← repo root
 │   ├── smoke-2b8.mjs                   ← 2B.8 invite/delete DB smoke
 │   ├── smoke-2b9.mjs                   ← 2B.9 password reset DB smoke
 │   ├── patch-settings-2b9.mjs          ← 2B.9 settings UI patch (one-off)
-│   └── seed-navin-candidate-form.mjs   ← inserts/updates the 14-section Navin Group candidate data form (see §9.18)
+│   └── seed-hire-rabbits-candidate-form.mjs   ← inserts/updates the 14-section Hire Rabbits candidate data form (see §9.18)
 │
 └── supabase/
     └── migrations/                     ← original Supabase migrations (historical)
@@ -652,7 +652,7 @@ When a submission arrives with `candidate_id`, the route walks the form's `field
 | Candidate sidebar | `components/candidate-detail-panel.tsx` (Forms tab, ~L1224) | Lists all built-in forms. **Copy Link** / **Send via Email** produce `/f/{formId}?c={candidateId}` so submissions auto-link. Past responses are listed under each form with expand-to-view. |
 
 **Seeded forms**
-- *Candidate Data Form — Navin Group* (`type=application`, 14 sections, 139 fields) — full HR onboarding form. Seeded via `scripts/seed-navin-candidate-form.mjs`. See [§9.18](#918-seed--refresh-the-navin-group-candidate-data-form).
+- *Candidate Data Form — Hire Rabbits* (`type=application`, 14 sections, 139 fields) — full HR onboarding form. Seeded via `scripts/seed-hire-rabbits-candidate-form.mjs`. See [§9.18](#918-seed--refresh-the-hire-rabbits-candidate-data-form).
 
 ---
 
@@ -984,24 +984,24 @@ SQL
 
 (`/root/sync-from-supabase.sh` was promised but never created — TODO.)
 
-### 9.18 Seed / Refresh the Navin Group Candidate Data Form
+### 9.18 Seed / Refresh the Hire Rabbits Candidate Data Form
 
-The full 14-section / 139-field Navin Group candidate data form is defined inline in `scripts/seed-navin-candidate-form.mjs`. The script is **idempotent** — keyed on `forms.name = 'Candidate Data Form — Navin Group'`. First run inserts, subsequent runs UPDATE the same row's `fields`/`description` and flip `is_active=true`.
+The full 14-section / 139-field Hire Rabbits candidate data form is defined inline in `scripts/seed-hire-rabbits-candidate-form.mjs`. The script is **idempotent** — keyed on `forms.name = 'Candidate Data Form — Hire Rabbits'`. First run inserts, subsequent runs UPDATE the same row's `fields`/`description` and flip `is_active=true`.
 
 ```bash
 cd /root/ats-staging
-node scripts/seed-navin-candidate-form.mjs
+node scripts/seed-hire-rabbits-candidate-form.mjs
 # → Inserted new form id=<uuid>  (or)  Updated existing form id=<uuid>
 # → Share base URL: /f/<uuid>  (append ?c=<candidateId> when sending to a candidate)
 ```
 
 To edit the form structure:
-1. Open `scripts/seed-navin-candidate-form.mjs` — sections (`sec(...)`) and fields (`fld(type, label, opts)`) are declarative.
+1. Open `scripts/seed-hire-rabbits-candidate-form.mjs` — sections (`sec(...)`) and fields (`fld(type, label, opts)`) are declarative.
 2. Re-run the script — same id, updated fields. **No new form is created.**
 3. Hard-reload the public fill page — Next.js compiles `/f/[id]` on first request after schema change.
 
 To attach this form (or any form) to a candidate:
-- Open the candidate → **Forms tab** → click **Copy Link** next to *Candidate Data Form — Navin Group*. The URL on the clipboard is `…/f/<formId>?c=<candidateId>`. When the candidate submits, the response is auto-linked to that candidate and mapped candidate columns (`email`, `mobile`, `current_location`, `present_salary`, `expected_salary`) are filled in.
+- Open the candidate → **Forms tab** → click **Copy Link** next to *Candidate Data Form — Hire Rabbits*. The URL on the clipboard is `…/f/<formId>?c=<candidateId>`. When the candidate submits, the response is auto-linked to that candidate and mapped candidate columns (`email`, `mobile`, `current_location`, `present_salary`, `expected_salary`) are filled in.
 
 To replace with a different big form: write a new `scripts/seed-<name>.mjs` from the same template, run it, and the form shows up under **JDs & Forms → Forms**.
 
@@ -1369,7 +1369,7 @@ Claude reads this on every startup. Even if a prompt-injection or mistake tries 
 Once Claude is running in `/root/ats-staging/`, paste this as the first message:
 
 ````
-You are picking up Phase 2C of the NavinGroup ATS migration. Full context: /root/ats-staging/SERVER-GUIDE.md (read it first, especially §17.4 GUARDRAILS — those are absolute).
+You are picking up Phase 2C of the Hire Rabbits ATS migration. Full context: /root/ats-staging/SERVER-GUIDE.md (read it first, especially §17.4 GUARDRAILS — those are absolute).
 
 CURRENT STATE (verify with `git log --oneline -5`):
 - Branch: phase-2b-nextauth, HEAD at f48bec4 ("Phase 2C.2: migrate /api/co-sourcers ...")
@@ -1474,7 +1474,7 @@ This removes the binary and Claude's local config (auth tokens, settings, histor
 > Use this as the first message when you re-install Claude Code on the VPS (after the §17.2 install + §17.5 settings.json + ssh in). It supersedes §17.6.
 
 ````
-You are picking up the NavinGroup ATS migration AFTER Phase 2C.3 was completed in a prior session. Read /root/ats-staging/SERVER-GUIDE.md first, especially §17.4 GUARDRAILS (absolute) and §17.9 (this handoff). Then run `git log --oneline -10` to confirm state.
+You are picking up the Hire Rabbits ATS migration AFTER Phase 2C.3 was completed in a prior session. Read /root/ats-staging/SERVER-GUIDE.md first, especially §17.4 GUARDRAILS (absolute) and §17.9 (this handoff). Then run `git log --oneline -10` to confirm state.
 
 CURRENT STATE (HEAD should be 942c942 on branch phase-2b-nextauth):
 - 942c942  Phase 2C close-out: 33 of 34 routes on Drizzle, 2 deferred
