@@ -54,6 +54,8 @@ Copy `.env.local.example` to `.env.local` and set these values:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Browser-safe Supabase anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only admin/service queries |
 | `ANTHROPIC_API_KEY` | Optional | AI resume parsing fallback key |
+| `SITE4PEOPLE_API_KEY` | Optional | Shared secret for the Site4People boost-job webhook |
+| `SITE4PEOPLE_CANDIDATE_CALLBACK_URL` | Optional | Site4People URL for sending candidates back |
 
 Do not add old Drizzle, Auth.js, or local database variables. The app does not need `DATABASE_URL`, `AUTH_SECRET`, `NEXTAUTH_SECRET`, or local Postgres credentials.
 
@@ -93,6 +95,8 @@ Optional:
 
 ```text
 ANTHROPIC_API_KEY
+SITE4PEOPLE_API_KEY
+SITE4PEOPLE_CANDIDATE_CALLBACK_URL
 ```
 
 After changing env vars in Vercel, redeploy the project. A deployment with missing or wrong Supabase env vars can show login redirects, failed auth, or broken server routes even when localhost works.

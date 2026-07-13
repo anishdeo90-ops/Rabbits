@@ -160,6 +160,11 @@ export interface Job {
   client_contact?: string;
   placement_fee_pct?: number;
   placement_fee_flat?: number;
+  external_source?: string;
+  external_job_uid?: string;
+  external_job_id?: string;
+  external_received_at?: string;
+  external_payload?: Record<string, unknown>;
   // JD link
   jd_id?: string;
   hod_id?: string;
