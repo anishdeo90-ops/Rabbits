@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, createContext, useContext, useRef } f
 import { X, ExternalLink, Trash2, Save, AlertTriangle, Mail, MessageSquare, Phone, Upload, FileText, Calendar, Video, Plus, Send, Paperclip, Sparkles, ChevronDown, ChevronUp, Lock, Unlock, CheckCircle, Share2, ArrowRightCircle, Download } from "lucide-react";
 import type { Candidate, Master, Profile, CandidateOffer } from "@/lib/types";
 import { computeCTC, CTC_SYSTEM_TEMPLATES, generateOfferLetterHTML, type CTCBreakdown } from "@/lib/ctc";
+import { monthFromApplicationDate } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 // ── Panel Context ─────────────────────────────────────────────────────────────
@@ -350,7 +351,11 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
   }, [onClose]);
 
   function handleChange(key: keyof Candidate, value: string | number | null) {
-    setForm(prev => ({ ...prev, [key]: value }));
+    setForm(prev => ({
+      ...prev,
+      [key]: value,
+      ...(key === "application_date" ? { month: monthFromApplicationDate(value) ?? "" } : {}),
+    }));
     setDirty(true);
   }
 

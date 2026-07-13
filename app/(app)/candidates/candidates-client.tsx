@@ -7,6 +7,7 @@ import DetailPanel from "@/components/candidate-detail-panel";
 import AddCandidateModal from "@/components/add-candidate-modal";
 import toast from "react-hot-toast";
 import { X, Upload, Link as LinkIcon, ExternalLink, Trash2 } from "lucide-react";
+import { monthFromApplicationDate } from "@/lib/utils";
 
 // ── Searchable combobox (used for filter dropdowns) ─────────────────────────
 function SearchCombobox({ options, value, onChange, placeholder, className = "" }: {
@@ -256,6 +257,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const TODAY = new Date().toISOString().split("T")[0];
+const TODAY_MONTH = monthFromApplicationDate(TODAY) ?? new Date().toISOString().slice(0, 7);
 
 function normOpt(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -344,7 +346,7 @@ export default function CandidatesClient({
 
   // ── New row state ────────────────────────────────────────────────────────
   const defaultStatus = statuses[0]?.name ?? "Sourced";
-  const [newRow, setNewRow]           = useState<Record<string, string>>({ application_date: TODAY, final_status: defaultStatus });
+  const [newRow, setNewRow]           = useState<Record<string, string>>({ application_date: TODAY, month: TODAY_MONTH, final_status: defaultStatus });
   const [newRowActive, setNewRowActive] = useState<string | null>(null);
   const newRowRef = useRef<HTMLTableRowElement>(null);
   const [savingNew, setSavingNew]     = useState(false);
@@ -748,6 +750,10 @@ export default function CandidatesClient({
       fieldVal = value === "" ? null : parseFloat(value);
     }
 
+    const monthFromDate = col === "application_date" ? monthFromApplicationDate(fieldVal) : null;
+    const patch: Record<string, string | number | null> = { [fieldKey]: fieldVal };
+    if (col === "application_date") patch.month = monthFromDate;
+
     const cand   = candidates.find(c => c.id === rowId);
     const colDef = SHEET_COLS.find(c => c.key === col);
     if (!isUndo && cand && colDef) {
@@ -759,7 +765,9 @@ export default function CandidatesClient({
 
     // Optimistic update
     setCandidates(prev => prev.map(c =>
-      c.id === rowId ? { ...c, [col]: value, [fieldKey]: fieldVal } as Candidate : c,
+      c.id === rowId
+        ? { ...c, [col]: value, [fieldKey]: fieldVal, ...(col === "application_date" ? { month: monthFromDate } : {}) } as Candidate
+        : c,
     ));
     setSaving(prev => new Set(prev).add(rowId));
 
@@ -767,7 +775,7 @@ export default function CandidatesClient({
       const res = await fetch(`/api/candidates/${rowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [fieldKey]: fieldVal }),
+        body: JSON.stringify(patch),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -928,7 +936,7 @@ export default function CandidatesClient({
       if (res.ok) {
         const json = await res.json();
         toast.success("Candidate added");
-        setNewRow({ application_date: TODAY, final_status: defaultStatus });
+        setNewRow({ application_date: TODAY, month: TODAY_MONTH, final_status: defaultStatus });
         setNewRowActive(null);
         // Append at the bottom — avoids scroll-to-top caused by a full refetch
         if (json.data) {
@@ -1439,7 +1447,14 @@ export default function CandidatesClient({
                               id={`nr-${col.key}`}
                               type={col.type === "date" ? "date" : col.type === "number" ? "number" : col.type === "url" ? "url" : "text"}
                               value={val}
-                              onChange={e => setNewRow(p => ({ ...p, [col.key]: e.target.value }))}
+                              onChange={e => {
+                                const nextValue = e.target.value;
+                                setNewRow(p => ({
+                                  ...p,
+                                  [col.key]: nextValue,
+                                  ...(col.key === "application_date" ? { month: monthFromApplicationDate(nextValue) ?? "" } : {}),
+                                }));
+                              }}
                               onKeyDown={e => {
                                 const nrKeys = SHEET_COLS.filter(c => !c.readOnly).map(c => c.key);
                                 const nrIdx  = nrKeys.indexOf(col.key);

@@ -46,6 +46,26 @@ export function excelDateToISO(serial: number): string | null {
   return isValid(d) ? d.toISOString().split("T")[0] : null;
 }
 
+export function monthFromApplicationDate(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    const iso = excelDateToISO(value);
+    return iso ? iso.slice(0, 7) : null;
+  }
+  if (value instanceof Date) {
+    if (!isValid(value)) return null;
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})(?:-\d{2})?/);
+  if (!match) return null;
+
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return null;
+  return `${match[1]}-${match[2]}`;
+}
+
 export function safeString(val: unknown): string {
   if (val == null) return "";
   return String(val).trim();

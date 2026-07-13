@@ -4,6 +4,7 @@ import { useState } from "react";
 import { X, AlertTriangle } from "lucide-react";
 import toast from "react-hot-toast";
 import type { Master, Profile } from "@/lib/types";
+import { monthFromApplicationDate } from "@/lib/utils";
 
 interface DupCandidate {
   id: string; name: string; mobile: string; current_designation: string | null;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function AddCandidateModal({ profile, sites, designations, sources, statuses, recruiters, onClose, onSaved }: Props) {
+  const today = new Date().toISOString().split("T")[0];
   const [saving, setSaving] = useState(false);
   const [dupLoading, setDupLoading]       = useState(false);
   const [duplicates, setDuplicates]       = useState<DupCandidate[]>([]);
@@ -39,15 +41,19 @@ export default function AddCandidateModal({ profile, sites, designations, source
     current_location: "",
     present_salary: "",
     expected_salary: "",
-    month: new Date().toISOString().slice(0, 7),   // YYYY-MM format for DB consistency
-    application_date: new Date().toISOString().split("T")[0],
+    month: monthFromApplicationDate(today) ?? new Date().toISOString().slice(0, 7),   // YYYY-MM format for DB consistency
+    application_date: today,
     naukri_profile_url: "",
     hr_id: profile.role === "recruiter" ? profile.id : "",
     final_status: statuses[0]?.name ?? "Sourced",
   });
 
   function set(key: string, val: string) {
-    setForm((prev) => ({ ...prev, [key]: val }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: val,
+      ...(key === "application_date" ? { month: monthFromApplicationDate(val) ?? "" } : {}),
+    }));
   }
 
   async function checkDuplicates(mobile: string) {

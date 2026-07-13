@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { findDuplicateCandidatesByMobile } from "@/lib/candidate-duplicates";
+import { monthFromApplicationDate } from "@/lib/utils";
 
 const WRITABLE_CANDIDATE_FIELDS = new Set([
   "hr_id",
@@ -71,6 +72,9 @@ function pickWritableCandidateFields(input: Record<string, unknown>) {
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
     if (WRITABLE_CANDIDATE_FIELDS.has(key)) output[key] = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(output, "application_date")) {
+    output.month = monthFromApplicationDate(output.application_date);
   }
   return output;
 }
@@ -292,9 +296,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const payload = pickWritableCandidateFields(body);
+
   const { data, error } = await supabase
     .from("candidates")
-    .insert({ ...pickWritableCandidateFields(body), created_by: user.id, hr_id: body.hr_id ?? user.id })
+    .insert({ ...payload, created_by: user.id, hr_id: body.hr_id ?? user.id })
     .select()
     .single();
 
