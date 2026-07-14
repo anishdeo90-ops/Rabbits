@@ -293,6 +293,25 @@ Google Indexing API setup:
 6. Set GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON_BASE64 from the service account JSON.
 ```
 
+Current production setup:
+
+```text
+Site URL: https://rabbits-xi.vercel.app/
+Search Console property: URL prefix
+Verification file: /googled33e2ff6082116c6.html
+Indexing service account: hire-rabbits-530@scraper-483120.iam.gserviceaccount.com
+```
+
+Admin posting flow:
+
+```text
+1. Open /jobs.
+2. Tick Google Jobs on the job card.
+3. Link an active form from Forms, for example Payroll Manager Form.
+4. Open Public job page and confirm Apply Now is active.
+5. Click Submit on the Google Jobs card.
+```
+
 Admin card status labels:
 
 ```text
@@ -311,6 +330,15 @@ Body: { "job_id": "<ats_job_id>", "type": "URL_UPDATED" }
 ```
 
 Google still decides when and whether to index the page. `Submitted` means Google accepted the crawl notification, not that the job is already visible in Google search results.
+
+Apply button rule:
+
+```text
+Grey Apply Now = no active form is linked to that job.
+Active Apply Now = form_job_links has a row and the linked form has is_active = true.
+```
+
+If Google returns `403 Failed to verify the URL ownership`, add the service account as a delegated owner in Search Console, not only as a normal/full user.
 
 Current Apply behavior:
 
