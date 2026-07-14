@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -57,11 +57,28 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const jobIds = jobs.map((j) => j.id).filter(Boolean);
+  let postingsByJob = new Map<string, unknown[]>();
+  if (jobIds.length > 0 && ["admin", "hr_manager", "hod"].includes(profile?.role ?? "")) {
+    const admin = await createAdminClient();
+    const { data: postings } = await admin
+      .from("job_postings")
+      .select("*")
+      .in("job_id", jobIds);
+    postingsByJob = (postings ?? []).reduce((map, posting) => {
+      const list = map.get(posting.job_id) ?? [];
+      list.push(posting);
+      map.set(posting.job_id, list);
+      return map;
+    }, new Map<string, unknown[]>());
+  }
+
   // Flatten joined fields
   const result = jobs.map((j) => ({
     ...j,
     designation_name: (j.designation as { name: string } | null)?.name,
     site_name: (j.site as { name: string } | null)?.name,
+    postings: postingsByJob.get(j.id) ?? [],
     recruiters: (j.recruiters as { recruiter_id: string; profile: { name: string } }[])?.map((r) => ({
       ...r,
       recruiter_name: r.profile?.name,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Link2, X, Upload, Send, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { ExternalLink, Globe2, Link2, X, Upload, Send, Clock, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Job, Master, Profile } from "@/lib/types";
@@ -168,6 +168,22 @@ const PRIORITY_COLORS: Record<string, string> = {
   low:    "bg-gray-100 text-gray-500",
 };
 
+const POSTING_STATUS_COLORS: Record<string, string> = {
+  pending: "bg-amber-50 text-amber-700 border-amber-200",
+  posting: "bg-blue-50 text-blue-700 border-blue-200",
+  posted: "bg-green-50 text-green-700 border-green-200",
+  failed: "bg-red-50 text-red-700 border-red-200",
+  cancelled: "bg-gray-50 text-gray-500 border-gray-200",
+};
+
+const POSTING_STATUS_LABELS: Record<string, string> = {
+  pending: "Ready",
+  posting: "Submitting",
+  posted: "Submitted",
+  failed: "Failed",
+  cancelled: "Off",
+};
+
 export default function JobsPage() {
   const router = useRouter();
   const [tab, setTab]         = useState<JobTab>("open");
@@ -192,6 +208,7 @@ export default function JobsPage() {
   const [requestNote, setRequestNote] = useState("");
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [pendingRequests, setPendingRequests] = useState<JobRequest[]>([]);
+  const [submittingGoogleJobIds, setSubmittingGoogleJobIds] = useState<string[]>([]);
 
   const isAdmin = profile?.role === "admin";
   const canRequestJob = profile?.role === "hr_manager" || profile?.role === "hod";
@@ -348,6 +365,56 @@ export default function JobsPage() {
       });
       setLinkedForms(prev => [...prev, formId]);
     }
+  }
+
+  async function toggleGoogleJobs(job: Job, enabled: boolean) {
+    const res = await fetch("/api/job-postings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: job.id, platform: "Google Jobs", enabled }),
+    });
+    if (res.ok) {
+      toast.success(enabled ? "Google Jobs enabled" : "Google Jobs cancelled");
+      fetchJobs();
+    } else {
+      const j = await res.json();
+      toast.error(j.error ?? "Failed to update Google Jobs");
+    }
+  }
+
+  async function submitGoogleIndexing(job: Job) {
+    setSubmittingGoogleJobIds(prev => prev.includes(job.id) ? prev : [...prev, job.id]);
+    try {
+      const res = await fetch("/api/job-postings/google-indexing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, type: "URL_UPDATED" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to submit to Google");
+      toast.success("Submitted to Google Jobs");
+      fetchJobs();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to submit to Google");
+      fetchJobs();
+    } finally {
+      setSubmittingGoogleJobIds(prev => prev.filter(id => id !== job.id));
+    }
+  }
+
+  function googlePosting(job: Job) {
+    return job.postings?.find((posting) => posting.platform === "Google Jobs");
+  }
+
+  function publicJobUrl(job: Job) {
+    const posting = googlePosting(job);
+    if (posting?.external_post_url) return posting.external_post_url;
+    return `/public/jobs/${job.id}`;
+  }
+
+  function postingLabel(job: Job) {
+    const status = googlePosting(job)?.status ?? "cancelled";
+    return POSTING_STATUS_LABELS[status] ?? status;
   }
 
   function toggleAdmin(id: string) {
@@ -552,6 +619,50 @@ export default function JobsPage() {
                 {job.opened_at && <span>Opened: {job.opened_at.slice(0,10)}</span>}
                 {job.target_doj && <span>Target DOJ: {job.target_doj.slice(0,10)}</span>}
               </div>
+
+              {(profile?.role === "admin" || profile?.role === "hr_manager" || profile?.role === "hod") && (
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        className="accent-brand-600"
+                        checked={!!googlePosting(job) && googlePosting(job)?.status !== "cancelled"}
+                        onChange={(e) => toggleGoogleJobs(job, e.target.checked)}
+                      />
+                      <Globe2 size={13} />
+                      Google Jobs
+                    </label>
+                    <span
+                      title={googlePosting(job)?.error_message || undefined}
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${POSTING_STATUS_COLORS[googlePosting(job)?.status ?? "cancelled"]}`}
+                    >
+                      {postingLabel(job)}
+                    </span>
+                  </div>
+                  {!!googlePosting(job) && googlePosting(job)?.status !== "cancelled" && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <a
+                        href={publicJobUrl(job)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                      >
+                        Public job page <ExternalLink size={11} />
+                      </a>
+                      <button
+                        type="button"
+                        disabled={submittingGoogleJobIds.includes(job.id) || googlePosting(job)?.status === "posting"}
+                        onClick={() => submitGoogleIndexing(job)}
+                        className="inline-flex items-center gap-1 rounded-md border border-green-200 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Send size={11} />
+                        {submittingGoogleJobIds.includes(job.id) || googlePosting(job)?.status === "posting" ? "Submitting" : "Submit"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Salary range */}
               {(job.min_salary || job.max_salary) && (

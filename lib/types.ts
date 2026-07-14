@@ -187,6 +187,7 @@ export interface Job {
   designation_name?: string;
   site_name?: string;
   recruiters?: JobRecruiter[];
+  postings?: JobPosting[];
 }
 
 export interface JobRecruiter {
@@ -200,6 +201,21 @@ export interface JobRecruiter {
   // Joined
   recruiter_name?: string;
   recruiter_email?: string;
+}
+
+export interface JobPosting {
+  id: string;
+  job_id: string;
+  platform: string;
+  status: "pending" | "posting" | "posted" | "failed" | "cancelled";
+  external_post_url?: string;
+  external_post_id?: string;
+  error_message?: string;
+  attempt_count: number;
+  last_attempt_at?: string;
+  posted_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ── JD Library ──────────────────────────────────────────────

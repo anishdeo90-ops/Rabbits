@@ -11,6 +11,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/api/") ||
     pathname.startsWith("/f/") ||
+    pathname.startsWith("/public/jobs/") ||
+    /^\/google[a-z0-9]+\.html$/i.test(pathname) ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
     pathname === "/favicon.ico"
   ) {
     return supabaseResponse;

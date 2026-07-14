@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPublicJobUrl, GOOGLE_JOBS_PLATFORM } from "@/lib/google-jobs";
 import { createAdminClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -166,12 +167,26 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const publicJobUrl = getPublicJobUrl(job.id);
+  const { error: postingError } = await admin
+    .from("job_postings")
+    .upsert({
+      job_id: job.id,
+      platform: GOOGLE_JOBS_PLATFORM,
+      status: "pending",
+      external_post_url: publicJobUrl,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "job_id,platform" });
+
+  if (postingError) return NextResponse.json({ error: postingError.message }, { status: 500 });
+
   return NextResponse.json({
     data: {
       ats_job_id: job.id,
       job_uid: job.external_job_uid,
       site4people_job_id: job.external_job_id,
       title: job.title,
+      public_job_url: publicJobUrl,
     },
   }, { status: 202 });
 }

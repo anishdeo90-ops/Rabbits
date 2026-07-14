@@ -53,6 +53,8 @@ Copy `.env.local.example` to `.env.local` and set these values:
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Browser and server Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Browser-safe Supabase anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only admin/service queries |
+| `NEXT_PUBLIC_SITE_URL` | Yes in production | Public app origin for public job URLs, sitemap, robots, and Google Jobs JSON-LD |
+| `GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON_BASE64` | Required for Google submit | Base64 JSON key for the Google Cloud service account used by the Indexing API |
 | `ANTHROPIC_API_KEY` | Optional | AI resume parsing fallback key |
 | `SITE4PEOPLE_API_KEY` | Optional | Shared secret for the Site4People boost-job webhook |
 | `SITE4PEOPLE_CANDIDATE_CALLBACK_URL` | Optional | Site4People URL for sending candidates back |
@@ -89,6 +91,7 @@ Required Vercel env vars:
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
+NEXT_PUBLIC_SITE_URL
 ```
 
 Optional:
@@ -164,6 +167,7 @@ interviews
 jd_library
 job_creation_requests
 job_recruiters
+job_postings
 jobs
 masters
 notifications
@@ -201,6 +205,7 @@ No HRMS, payroll, attendance, leave, workflow, or other stale tables are require
 | Sync | `/sync` | Google Sheets sync tools |
 | HOD Portal | `/hod-portal` | Hiring requests and HOD review |
 | Public Form | `/f/[id]` | Candidate-facing form without login |
+| Public Job Page | `/public/jobs/[id]` | Crawlable job detail page for Google Jobs |
 
 ## User Roles
 
@@ -244,6 +249,89 @@ Admins, HR managers, and HOD users can create, edit, activate, and deactivate wo
 ```
 
 Recruiters can view active workflows and start allowed workflows for candidates they can access.
+
+## Site4People And Google Jobs
+
+Detailed integration notes live in:
+
+```text
+SITE4PEOPLE-INTEGRATION.md
+```
+
+Site4People boost-job webhook:
+
+```text
+POST /api/integrations/site4people/jobs/boost
+Header: X-API-KEY: <SITE4PEOPLE_API_KEY>
+```
+
+When Site4People sends a boosted job:
+
+1. The ATS creates or updates one canonical row in `jobs`.
+2. Site4People identity is stored on that job row using `external_source`, `external_job_uid`, `external_job_id`, `external_received_at`, and `external_payload`.
+3. The ATS creates/updates a `job_postings` row for `platform = Google Jobs`.
+4. The public Google Jobs page is available at `/public/jobs/<ats_job_id>`.
+
+Google Jobs does not use Python/Playwright posting. Google discovers public pages from:
+
+```text
+/public/jobs/<ats_job_id>
+/sitemap.xml
+/robots.txt
+```
+
+The public job page includes `JobPosting` JSON-LD, SEO metadata, and an `Apply Now` card. Admin/HR/HOD users can manage Google Jobs visibility from `/jobs`; each job card shows a Google Jobs checkbox, status badge, public job page link, and Submit button.
+
+Google Indexing API setup:
+
+```text
+1. In Google Cloud, enable the Indexing API for the project.
+2. Create a service account and JSON key.
+3. In Google Search Console, verify the production site.
+4. Add the service account email as a delegated owner of that Search Console property.
+5. Set NEXT_PUBLIC_SITE_URL to the production https domain.
+6. Set GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON_BASE64 from the service account JSON.
+```
+
+Admin card status labels:
+
+```text
+Ready       = Google Jobs tracking is enabled and the public page is ready.
+Submitting  = ATS is calling Google's Indexing API.
+Submitted   = Google accepted the URL_UPDATED notification.
+Failed      = Google rejected the notification; hover the badge or retry after fixing setup.
+Off         = Google Jobs tracking is disabled for this job.
+```
+
+The Submit button calls:
+
+```text
+POST /api/job-postings/google-indexing
+Body: { "job_id": "<ats_job_id>", "type": "URL_UPDATED" }
+```
+
+Google still decides when and whether to index the page. `Submitted` means Google accepted the crawl notification, not that the job is already visible in Google search results.
+
+Current Apply behavior:
+
+- If the job is linked to an active form, `Apply Now` opens `/f/<form_id>?j=<job_id>`.
+- The submitted response is stored in `form_responses` with `form_id`, `job_id`, `responses`, `respondent_name`, and `respondent_email`.
+- If the URL also has `c=<candidate_id>`, the form submission updates empty mapped fields on that existing candidate.
+- If the URL only has `j=<job_id>`, the response is saved in `form_responses`, but a new `candidates` row is not created yet.
+
+Required next step before Google Jobs applications fully appear on `/candidates`:
+
+```text
+On public form submit with job_id and no candidate_id:
+1. create a candidates row,
+2. set candidates.job_id,
+3. set application_date and month,
+4. map name/mobile/email/current location/designation from form fields,
+5. update form_responses.candidate_id to the new candidate id,
+6. if jobs.external_source = site4people, send candidate callback to Site4People.
+```
+
+Until that is built, public Google Jobs applications are captured in `form_responses` but do not automatically appear in the Candidates page.
 
 ## Mobile Navigation
 
@@ -352,6 +440,8 @@ https://your-domain.com/f/FORM_ID
 ```
 
 Public forms do not require login. Responses are stored in Supabase and shown inside the app.
+
+Public job pages open linked forms with `j=<job_id>`. Those submissions are currently stored in `form_responses`. Candidate auto-creation from unauthenticated public applications is pending; see "Site4People And Google Jobs".
 
 ## Quick Verification Checklist
 
