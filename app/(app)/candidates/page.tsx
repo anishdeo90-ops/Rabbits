@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import CandidatesClient from "./candidates-client";
 import type { Master, Profile } from "@/lib/types";
 
-export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ status?: string; hr_id?: string; designation_id?: string; designation_name?: string; job_id?: string; owner?: string; site_id?: string; date_from?: string; date_to?: string; pipeline_stage?: string; forward_to_id?: string }> }) {
+export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ status?: string; hr_id?: string; designation_id?: string; designation_name?: string; job_id?: string; owner?: string; site_id?: string; source_id?: string; date_from?: string; date_to?: string; date_field?: string; activity_scope?: string; pipeline_stage?: string; forward_to_id?: string }> }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -42,8 +42,11 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
       initialJobId={params.job_id ?? ""}
       initialOwner={params.owner === "mine" ? "mine" : params.owner === "all" ? "all" : profile?.role === "recruiter" ? "mine" : "all"}
       initialSiteId={params.site_id ?? ""}
+      initialSourceId={params.source_id ?? ""}
       initialDateFrom={params.date_from ?? ""}
       initialDateTo={params.date_to ?? ""}
+      initialDateField={params.date_field ?? ""}
+      initialActivityScope={params.activity_scope ?? ""}
       initialPipelineStage={params.pipeline_stage ?? ""}
       initialForwardToId={params.forward_to_id ?? ""}
     />

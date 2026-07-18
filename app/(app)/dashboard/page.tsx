@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Users, TrendingUp, Briefcase, Calendar } from "lucide-react";
 import type { DatePeriod, DashboardStats, RecruiterPerformance } from "@/lib/types";
+import dashboardActivity from "@/lib/dashboard/activity";
+
+const { getDashboardPeriodDates } = dashboardActivity;
 
 function SearchCombobox({ options, value, onChange, placeholder, className = "" }: {
   options: { id: string; name: string }[];
@@ -61,14 +64,15 @@ function SearchCombobox({ options, value, onChange, placeholder, className = "" 
 }
 
 const FUNNEL_STAGES = [
-  { key: "total",            label: "CVs Received",    color: "#ff2d87", pipelineStage: "" },
-  { key: "tel_int_done",     label: "Tel Int Done",    color: "#ff7bb3", pipelineStage: "tel_int_done" },
-  { key: "gf_sent",          label: "GF Sent",         color: "#fbbf24", pipelineStage: "gf_sent" },
-  { key: "shortlisted_hr",   label: "Shortlisted HR",  color: "#34d399", pipelineStage: "shortlisted_hr" },
-  { key: "pi_done",          label: "PI Done",         color: "#818cf8", pipelineStage: "pi_done" },
-  { key: "shortlisted_mgmt", label: "Shortlisted Mgmt",color: "#a3e635", pipelineStage: "shortlisted_mgmt" },
-  { key: "appointed",        label: "Offered",         color: "#22c55e", pipelineStage: "appointed" },
-  { key: "joined",           label: "Joined",          color: "#16a34a", pipelineStage: "joined" },
+  { key: "new_cvs",             label: "New CVs",          color: "#ff2d87", activityScope: "new" },
+  { key: "worked_on_existing",  label: "Worked On",        color: "#0ea5e9", activityScope: "worked" },
+  { key: "tel_int_done",        label: "Tel Int Done",     color: "#ff7bb3", pipelineStage: "tel_int_done" },
+  { key: "gf_sent",             label: "GF Sent",          color: "#fbbf24", pipelineStage: "gf_sent" },
+  { key: "shortlisted_hr",      label: "Shortlisted HR",   color: "#34d399", pipelineStage: "shortlisted_hr" },
+  { key: "pi_done",             label: "PI Done",          color: "#818cf8", pipelineStage: "pi_done" },
+  { key: "shortlisted_mgmt",    label: "Shortlisted Mgmt", color: "#a3e635", pipelineStage: "shortlisted_mgmt" },
+  { key: "appointed",           label: "Offered",          color: "#22c55e", pipelineStage: "appointed" },
+  { key: "joined",              label: "Joined",           color: "#16a34a", pipelineStage: "joined" },
 ];
 
 type GroupBy = "overall" | "recruiter" | "site" | "month" | "designation" | "source" | "interviewer";
@@ -205,16 +209,8 @@ export default function DashboardPage() {
   }
 
   function getPeriodDates(): { date_from?: string; date_to?: string } {
-    const now = new Date();
-    const fmt = (d: Date) => d.toISOString().split("T")[0];
-    switch (period) {
-      case "today": { const today = fmt(now); return { date_from: today, date_to: today }; }
-      case "month": return { date_from: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), date_to: fmt(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
-      case "lastmonth": return { date_from: fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1)), date_to: fmt(new Date(now.getFullYear(), now.getMonth(), 0)) };
-      case "last30": return { date_from: fmt(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)), date_to: fmt(now) };
-      case "custom": return { date_from: dateFrom || undefined, date_to: dateTo || undefined };
-      default: return {};
-    }
+    const dates = getDashboardPeriodDates(period, dateFrom, dateTo);
+    return { date_from: dates.from, date_to: dates.to };
   }
 
   function buildUrl(extras: Record<string, string> = {}): string {
@@ -226,6 +222,7 @@ export default function DashboardPage() {
     if (hodId)    p.set("forward_to_id",  hodId);
     if (siteId)   p.set("site_id",        siteId);
     if (designId) p.set("designation_id", designId);
+    if (sourceId) p.set("source_id",      sourceId);
     p.set("owner", userRole === "recruiter" ? "mine" : "all");
     for (const [k, v] of Object.entries(extras)) {
       if (v) p.set(k, v); else p.delete(k);
@@ -238,7 +235,7 @@ export default function DashboardPage() {
     switch (groupBy) {
       case "recruiter": {
         const rec = masters.recruiters.find(r => r.name === name);
-        return buildUrl({ hr_id: rec?.id ?? "" });
+        return buildUrl({ hr_id: rec?.id ?? "", activity_scope: "activity" });
       }
       case "interviewer": {
         const hod = masters.interviewers.find(i => i.name === name);
@@ -246,33 +243,42 @@ export default function DashboardPage() {
       }
       case "site": {
         const site = masters.sites.find(s => s.name === name);
-        return buildUrl({ site_id: site?.id ?? "" });
+        return buildUrl({ site_id: site?.id ?? "", activity_scope: "activity" });
       }
       case "designation": {
         const des = masters.designations.find(d => d.name === name);
-        return buildUrl({ designation_id: des?.id ?? "" });
+        return buildUrl({ designation_id: des?.id ?? "", activity_scope: "activity" });
+      }
+      case "source": {
+        const source = masters.sources.find(s => s.name === name);
+        return buildUrl({ source_id: source?.id ?? "", activity_scope: "activity" });
       }
       case "month": {
         const [y, m] = name.split("-").map(Number);
         if (y && m) {
           const from = new Date(y, m - 1, 1).toISOString().split("T")[0];
           const to   = new Date(y, m, 0).toISOString().split("T")[0];
-          return buildUrl({ date_from: from, date_to: to });
+          return buildUrl({ date_from: from, date_to: to, activity_scope: "activity" });
         }
-        return buildUrl();
+        return buildUrl({ activity_scope: "activity" });
       }
       default:
-        return buildUrl();
+        return buildUrl({ activity_scope: "activity" });
     }
   }
 
-  const funnelData = FUNNEL_STAGES.map(s => ({
-    label:         s.label,
-    pipelineStage: s.pipelineStage,
-    value:         stats ? (stats as unknown as Record<string, number>)[s.key] ?? 0 : 0,
-    color:         s.color,
-    pct:           stats?.total ? Math.round(((stats as unknown as Record<string, number>)[s.key] ?? 0) / stats.total * 100) : 0,
-  }));
+  const funnelData = FUNNEL_STAGES.map(s => {
+    const value = stats ? Number((stats as unknown as Record<string, number>)[s.key] ?? 0) : 0;
+    return {
+      label:         s.label,
+      pipelineStage: "pipelineStage" in s ? s.pipelineStage : "",
+      activityScope: "activityScope" in s ? s.activityScope : "",
+      value,
+      color:         s.color,
+      pct:           stats?.total ? Math.round(value / stats.total * 100) : 0,
+      split:         stats?.stage_splits?.[s.key],
+    };
+  });
 
   // Shared badge helper
   function convBadgeClass(conv: number) {
@@ -289,6 +295,7 @@ export default function DashboardPage() {
           <select value={period} onChange={e => handlePeriodChange(e.target.value)}
             className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-brand-500 focus:border-transparent">
             <option value="today">Today</option>
+            <option value="week">This Week</option>
             <option value="all">All Time</option>
             <option value="month">This Month</option>
             <option value="lastmonth">Last Month</option>
@@ -358,11 +365,11 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {[
           { label: "Open Jobs",         value: stats?.open_jobs ?? "—",            sub: "",                                             icon: Briefcase,  color: "bg-blue-500",   href: "/jobs" },
-          { label: "All Candidates",    value: stats?.total ?? "—",                sub: `${stats?.pi_done ?? 0} in PI`,                 icon: Users,      color: "bg-brand-500", href: buildUrl() },
-          { label: "Interviews / Week", value: stats?.interviews_this_week ?? "—", sub: "Upcoming 7 days",                              icon: Calendar,   color: "bg-purple-500", href: null },
-          { label: "Joinings",          value: stats?.joined ?? "—",               sub: "In period",                                    icon: TrendingUp, color: "bg-green-600",  href: buildUrl({ pipeline_stage: "joined" }) },
-          { label: "Offered",           value: stats?.appointed ?? "—",            sub: `${stats?.offered_not_joined ?? 0} not joined`, icon: Users,      color: "bg-yellow-500", href: buildUrl({ pipeline_stage: "appointed" }) },
-          { label: "Tel Int Done",      value: stats?.tel_int_done ?? "—",         sub: `${stats?.shortlisted_hr ?? 0} shortlisted`,    icon: TrendingUp, color: "bg-indigo-500", href: buildUrl({ pipeline_stage: "tel_int_done" }) },
+          { label: "New CVs",           value: stats?.new_cvs ?? "—",              sub: `${stats?.total ?? 0} total activity`,          icon: Users,      color: "bg-brand-500", href: buildUrl({ activity_scope: "new" }) },
+          { label: "Worked On",         value: stats?.worked_on_existing ?? "—",   sub: "Existing candidates",                         icon: TrendingUp, color: "bg-cyan-600",   href: buildUrl({ activity_scope: "worked" }) },
+          { label: "Tel Int Done",      value: stats?.tel_int_done ?? "—",         sub: `${stats?.shortlisted_hr ?? 0} shortlisted`,    icon: Calendar,   color: "bg-purple-500", href: buildUrl({ pipeline_stage: "tel_int_done", date_field: "stage" }) },
+          { label: "Offered",           value: stats?.appointed ?? "—",            sub: `${stats?.offered_not_joined ?? 0} not joined`, icon: Users,      color: "bg-yellow-500", href: buildUrl({ pipeline_stage: "appointed", date_field: "stage" }) },
+          { label: "Joinings",          value: stats?.joined ?? "—",               sub: "In period",                                    icon: TrendingUp, color: "bg-green-600",  href: buildUrl({ pipeline_stage: "joined", date_field: "stage" }) },
         ].map((kpi) => (
           <div key={kpi.label}
             onClick={() => kpi.href && router.push(kpi.href)}
@@ -387,8 +394,11 @@ export default function DashboardPage() {
           <div className="space-y-2">
             {funnelData.map((stage) => (
               <div key={stage.label}
-                onClick={() => stage.pipelineStage && router.push(buildUrl({ pipeline_stage: stage.pipelineStage }))}
-                className={`flex items-center gap-2 rounded-lg px-1 py-0.5 -mx-1 transition-colors ${stage.pipelineStage ? "cursor-pointer hover:bg-gray-50" : ""}`}>
+                onClick={() => {
+                  if (stage.pipelineStage) router.push(buildUrl({ pipeline_stage: stage.pipelineStage, date_field: "stage" }));
+                  else if (stage.activityScope) router.push(buildUrl({ activity_scope: stage.activityScope }));
+                }}
+                className={`flex items-center gap-2 rounded-lg px-1 py-0.5 -mx-1 transition-colors ${stage.pipelineStage || stage.activityScope ? "cursor-pointer hover:bg-gray-50" : ""}`}>
                 <div className="w-24 text-xs text-gray-500 flex-shrink-0 truncate">{stage.label}</div>
                 <div className="flex-1 bg-gray-100 rounded-full h-6 relative overflow-hidden">
                   <div
@@ -398,6 +408,7 @@ export default function DashboardPage() {
                     <span className="text-white text-xs font-semibold">{loading ? "…" : stage.value}</span>
                   </div>
                 </div>
+                {stage.split && <div className="hidden sm:block w-20 text-right text-[11px] text-gray-400">{stage.split.new}/{stage.split.worked}</div>}
                 <div className="w-10 text-right text-xs text-gray-400">{stage.pct}%</div>
               </div>
             ))}
@@ -467,14 +478,14 @@ export default function DashboardPage() {
                 const conv = r.total ? Math.round((Number(r.joined) / Number(r.total)) * 100) : 0;
                 const recId = masters.recruiters.find(x => x.name === r.name)?.id ?? "";
                 return (
-                  <tr key={i} onClick={() => router.push(buildUrl({ hr_id: recId }))} className="border-b border-gray-50 hover:bg-brand-50 cursor-pointer">
+                  <tr key={i} onClick={() => router.push(buildUrl({ hr_id: recId, activity_scope: "activity" }))} className="border-b border-gray-50 hover:bg-brand-50 cursor-pointer">
                     <td className="px-4 py-2.5 font-medium text-gray-900">{r.name as string}</td>
-                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId })); }}>{r.total as number}</td>
-                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "tel_int_done" })); }}>{r.tel_int_done as number}</td>
-                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "gf_sent" })); }}>{r.gf_sent as number}</td>
-                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "pi_done" })); }}>{r.pi_done as number}</td>
-                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "appointed" })); }}>{r.appointed as number}</td>
-                    <td className="px-4 py-2.5 font-semibold text-green-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "joined" })); }}>{r.joined as number}</td>
+                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, activity_scope: "activity" })); }}>{r.total as number}</td>
+                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "tel_int_done", date_field: "stage" })); }}>{r.tel_int_done as number}</td>
+                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "gf_sent", date_field: "stage" })); }}>{r.gf_sent as number}</td>
+                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "pi_done", date_field: "stage" })); }}>{r.pi_done as number}</td>
+                    <td className="px-4 py-2.5 text-gray-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "appointed", date_field: "stage" })); }}>{r.appointed as number}</td>
+                    <td className="px-4 py-2.5 font-semibold text-green-700" onClick={e => { e.stopPropagation(); router.push(buildUrl({ hr_id: recId, pipeline_stage: "joined", date_field: "stage" })); }}>{r.joined as number}</td>
                     <td className="px-4 py-2.5">
                       <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${convBadgeClass(conv)}`}>{conv}%</span>
                     </td>
@@ -495,7 +506,7 @@ export default function DashboardPage() {
             const conv = r.total ? Math.round((Number(r.joined) / Number(r.total)) * 100) : 0;
             const recId = masters.recruiters.find(x => x.name === r.name)?.id ?? "";
             return (
-              <div key={i} onClick={() => router.push(buildUrl({ hr_id: recId }))} className="px-4 py-3 hover:bg-brand-50 active:bg-brand-100 cursor-pointer">
+              <div key={i} onClick={() => router.push(buildUrl({ hr_id: recId, activity_scope: "activity" }))} className="px-4 py-3 hover:bg-brand-50 active:bg-brand-100 cursor-pointer">
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <p className="font-medium text-gray-900 truncate">{r.name as string}</p>
                   <span className={`flex-shrink-0 text-xs font-bold px-2 py-0.5 rounded-full ${convBadgeClass(conv)}`}>{conv}%</span>

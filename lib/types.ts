@@ -61,9 +61,13 @@ export interface Candidate {
   notice_period_days?: number;
   // Stage 1: Screening
   google_form_sent?: string;
+  google_form_sent_date?: string;
   google_form_received?: string;
+  google_form_received_date?: string;
   processed_by_hr?: string;
+  processed_by_hr_date?: string;
   shortlist_by_hr?: string;
+  shortlist_by_hr_date?: string;
   // Stage 2: Telephonic
   tel_int_date?: string;
   tel_int_remarks?: string;
@@ -71,6 +75,7 @@ export interface Candidate {
   remarks_before_pi?: string;
   mgmt_remarks_before_pi?: string;
   shortlisted_for_pi?: string;
+  shortlisted_for_pi_date?: string;
   // PI Rounds
   pi1_date?: string;
   pi1_taken_by?: string;
@@ -84,6 +89,7 @@ export interface Candidate {
   // GF / Offer
   gf_issued?: string;
   shortlisted_by_mgmt?: string;
+  shortlisted_by_mgmt_date?: string;
   gf_issue_date?: string;
   gf_received_date?: string;
   gf_verified?: string;
@@ -93,6 +99,9 @@ export interface Candidate {
   // Final
   remarks?: string;
   final_status?: string;
+  final_status_date?: string;
+  offered_date?: string;
+  offered_not_joined_date?: string;
   final_action?: string;
   file_no?: string;
   doj?: string;
@@ -104,6 +113,8 @@ export interface Candidate {
   // AI
   ai_score?: number;
   ai_summary?: string;
+  parsed_keywords?: Record<string, unknown>;
+  kw_years_experience?: number;
   // CV
   cv_drive_url?: string;
   cv_filename?: string;
@@ -345,7 +356,7 @@ export interface SyncConflict {
 
 // ── Dashboard ────────────────────────────────────────────────
 
-export type DatePeriod = "today" | "all" | "month" | "lastmonth" | "last30" | "custom";
+export type DatePeriod = "today" | "week" | "all" | "month" | "lastmonth" | "last30" | "custom";
 
 export interface DashboardFilters {
   period: DatePeriod;
@@ -365,6 +376,8 @@ export interface FunnelRow {
 
 export interface DashboardStats {
   total: number;
+  new_cvs: number;
+  worked_on_existing: number;
   tel_int_done: number;
   gf_sent: number;
   gf_received: number;
@@ -376,6 +389,7 @@ export interface DashboardStats {
   appointed: number;
   joined: number;
   offered_not_joined: number;
+  stage_splits?: Record<string, { new: number; worked: number }>;
   // v3 additions
   open_jobs?: number;
   interviews_this_week?: number;

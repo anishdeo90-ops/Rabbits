@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { findDuplicateCandidatesByMobile } from "@/lib/candidate-duplicates";
 import { monthFromApplicationDate } from "@/lib/utils";
+import dashboardActivity from "@/lib/dashboard/activity";
+
+const { inRange, rowHasAnyStageInRange, rowStageInRange, STAGE_DATE_FIELDS } = dashboardActivity;
+const ACTIVITY_DATE_FIELDS = new Set([
+  "application_date",
+  ...Object.values(STAGE_DATE_FIELDS as Record<string, string[]>).flat(),
+  "google_form_sent_date",
+  "google_form_received_date",
+  "processed_by_hr_date",
+  "shortlist_by_hr_date",
+  "shortlisted_for_pi_date",
+  "shortlisted_by_mgmt_date",
+  "offered_date",
+  "offered_not_joined_date",
+  "final_status_date",
+]);
 
 const WRITABLE_CANDIDATE_FIELDS = new Set([
   "hr_id",
@@ -23,15 +39,20 @@ const WRITABLE_CANDIDATE_FIELDS = new Set([
   "offered_salary",
   "notice_period_days",
   "google_form_sent",
+  "google_form_sent_date",
   "google_form_received",
+  "google_form_received_date",
   "processed_by_hr",
+  "processed_by_hr_date",
   "shortlist_by_hr",
+  "shortlist_by_hr_date",
   "tel_int_date",
   "tel_int_remarks",
   "hr_manager_remarks",
   "remarks_before_pi",
   "mgmt_remarks_before_pi",
   "shortlisted_for_pi",
+  "shortlisted_for_pi_date",
   "pi1_date",
   "pi1_taken_by",
   "pi1_remarks",
@@ -43,6 +64,7 @@ const WRITABLE_CANDIDATE_FIELDS = new Set([
   "pi3_remarks",
   "gf_issued",
   "shortlisted_by_mgmt",
+  "shortlisted_by_mgmt_date",
   "gf_issue_date",
   "gf_received_date",
   "gf_verified",
@@ -51,6 +73,9 @@ const WRITABLE_CANDIDATE_FIELDS = new Set([
   "addr_verification_received",
   "remarks",
   "final_status",
+  "final_status_date",
+  "offered_date",
+  "offered_not_joined_date",
   "final_action",
   "file_no",
   "doj",
@@ -142,19 +167,27 @@ export async function GET(req: NextRequest) {
   const sourceId = p.get("source_id");
   const dateFrom = p.get("date_from");
   const dateTo = p.get("date_to");
+  const dateField = p.get("date_field");
+  const activityScope = p.get("activity_scope");
   const pipelineStage = p.get("pipeline_stage");
   const forwardToId = p.get("forward_to_id");
   const piBy = p.get("pi_taken_by");
   const page = parseInt(p.get("page") ?? "1", 10);
   const limit = parseInt(p.get("limit") ?? "2000", 10);
   const offset = (page - 1) * limit;
+  const hasDateRange = Boolean(dateFrom || dateTo);
+  const usesActivityDateFilter = Boolean((dateField || activityScope) && hasDateRange);
+  const needsClientFiltering = usesActivityDateFilter || Boolean(piBy) || Boolean(kwSearch);
 
   let query = supabase
     .from("v_pipeline_funnel")
     .select("*", { count: "exact" })
     .eq("is_deleted", false)
-    .order("sr_no", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order("sr_no", { ascending: false });
+
+  if (!needsClientFiltering) {
+    query = query.range(offset, offset + limit - 1);
+  }
 
   if (profile?.role === "recruiter") {
     query = query.eq("hr_id", user.id);
@@ -171,19 +204,26 @@ export async function GET(req: NextRequest) {
   if (designId) query = query.eq("designation_id", designId);
   if (jobId) query = query.eq("job_id", jobId);
   if (sourceId) query = query.eq("source_id", sourceId);
-  if (dateFrom) query = query.gte("application_date", dateFrom);
-  if (dateTo) query = query.lte("application_date", dateTo);
+  if (!usesActivityDateFilter) {
+    if (dateFrom) query = query.gte("application_date", dateFrom);
+    if (dateTo) query = query.lte("application_date", dateTo);
+  }
 
   const stageColumn: Record<string, string> = {
     tel_int_done: "tel_int_done",
     gf_sent: "gf_sent",
+    gf_received: "gf_received",
     shortlisted_hr: "shortlisted_hr",
     pi_done: "pi_done",
     shortlisted_mgmt: "shortlisted_mgmt",
+    gf_issued: "gf_issued",
+    gf_recv: "gf_recv",
     appointed: "appointed",
     joined: "joined",
+    offered_not_joined: "offered_not_joined",
   };
-  if (pipelineStage && stageColumn[pipelineStage]) query = query.eq(stageColumn[pipelineStage], 1);
+  const usesStageDateFilter = dateField === "stage" && hasDateRange;
+  if (pipelineStage && stageColumn[pipelineStage] && !usesStageDateFilter) query = query.eq(stageColumn[pipelineStage], 1);
 
   if (forwardToId) {
     const { data: forwardRows, error: forwardError } = await supabase
@@ -226,6 +266,26 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   let rows = data ?? [];
+  const dateRange = { from: dateFrom ?? undefined, to: dateTo ?? undefined };
+
+  if (usesActivityDateFilter && (dateRange.from || dateRange.to)) {
+    rows = rows.filter((row) => {
+      const record = row as Record<string, string | number | null>;
+      if (activityScope === "new") return inRange(record.application_date, dateRange);
+      if (activityScope === "worked") return !inRange(record.application_date, dateRange) && rowHasAnyStageInRange(record, dateRange);
+      if (activityScope === "activity") return inRange(record.application_date, dateRange) || rowHasAnyStageInRange(record, dateRange);
+
+      if (dateField === "stage" && pipelineStage) {
+        return rowStageInRange(record, pipelineStage, dateRange);
+      }
+
+      if (dateField && ACTIVITY_DATE_FIELDS.has(dateField)) {
+        return inRange(record[dateField], dateRange);
+      }
+
+      return inRange(record.application_date, dateRange);
+    });
+  }
 
   if (kwTokens.length > 0) {
     rows = rows
@@ -272,7 +332,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ data: rows, count: piBy || kwTokens.length > 0 ? rows.length : count });
+  const filteredCount = rows.length;
+  const pageRows = needsClientFiltering ? rows.slice(offset, offset + limit) : rows;
+
+  return NextResponse.json({ data: pageRows, count: needsClientFiltering ? filteredCount : count });
 }
 
 export async function POST(req: NextRequest) {

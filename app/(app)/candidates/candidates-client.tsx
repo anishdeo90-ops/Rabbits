@@ -78,8 +78,11 @@ interface Props {
   initialJobId?: string;
   initialOwner?: OwnerFilter;
   initialSiteId?: string;
+  initialSourceId?: string;
   initialDateFrom?: string;
   initialDateTo?: string;
+  initialDateField?: string;
+  initialActivityScope?: string;
   initialPipelineStage?: string;
   initialForwardToId?: string;
 }
@@ -292,7 +295,7 @@ function optionListWithValues(
 export default function CandidatesClient({
   profile, sites, designations, sources, statuses, recruiters, interviewers,
   initialStatus = "", initialHrId = "", initialDesignationId = "", initialJobId = "", initialOwner = "all",
-  initialSiteId = "", initialDateFrom = "", initialDateTo = "", initialPipelineStage = "", initialForwardToId = "",
+  initialSiteId = "", initialSourceId = "", initialDateFrom = "", initialDateTo = "", initialDateField = "", initialActivityScope = "", initialPipelineStage = "", initialForwardToId = "",
 }: Props) {
   const router = useRouter();
   const [view, setView]             = useState<View>("sheet");
@@ -302,8 +305,11 @@ export default function CandidatesClient({
   const [search, setSearch]         = useState("");
   const [hrFilter, setHrFilter]         = useState(initialHrId);
   const [siteFilter, setSiteFilter]     = useState(initialSiteId);
+  const [sourceFilter, setSourceFilter] = useState(initialSourceId);
   const [dateFromFilter, setDateFromFilter]       = useState(initialDateFrom);
   const [dateToFilter, setDateToFilter]           = useState(initialDateTo);
+  const [dateFieldFilter, setDateFieldFilter]     = useState(initialDateField);
+  const [activityScopeFilter, setActivityScopeFilter] = useState(initialActivityScope);
   const [pipelineStageFilter, setPipelineStageFilter] = useState(initialPipelineStage);
   const [forwardToFilter, setForwardToFilter]         = useState(initialForwardToId);
   const [statusFilter, setStatusFilter] = useState(initialStatus);
@@ -396,12 +402,15 @@ export default function CandidatesClient({
     if (hrFilter)            p.set("hr_id",           hrFilter);
     else if (ownerFilter === "mine") p.set("hr_id",   profile.id);
     if (siteFilter)          p.set("site_id",          siteFilter);
+    if (sourceFilter)        p.set("source_id",        sourceFilter);
     if (statusFilter)        p.set("status",           statusFilter);
     if (designFilter)        p.set("designation_id",   designFilter);
     if (jobFilter)           p.set("job_id",           jobFilter);
     if (search)              p.set("search",           search);
     if (dateFromFilter)      p.set("date_from",        dateFromFilter);
     if (dateToFilter)        p.set("date_to",          dateToFilter);
+    if (dateFieldFilter)     p.set("date_field",       dateFieldFilter);
+    if (activityScopeFilter) p.set("activity_scope",   activityScopeFilter);
     if (pipelineStageFilter) p.set("pipeline_stage",   pipelineStageFilter);
     if (forwardToFilter)     p.set("forward_to_id",    forwardToFilter);
     return p;
@@ -419,7 +428,7 @@ export default function CandidatesClient({
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hrFilter, ownerFilter, profile.id, siteFilter, statusFilter, designFilter, jobFilter, search, dateFromFilter, dateToFilter, pipelineStageFilter, forwardToFilter]);
+  }, [hrFilter, ownerFilter, profile.id, siteFilter, sourceFilter, statusFilter, designFilter, jobFilter, search, dateFromFilter, dateToFilter, dateFieldFilter, activityScopeFilter, pipelineStageFilter, forwardToFilter]);
 
   async function loadMore() {
     if (loadingMore || !hasMore) return;
@@ -599,12 +608,15 @@ export default function CandidatesClient({
     search,
     hrFilter,
     siteFilter,
+    sourceFilter,
     statusFilter,
     designFilter,
     jobFilter,
     ownerFilter,
     dateFromFilter,
     dateToFilter,
+    dateFieldFilter,
+    activityScopeFilter,
     pipelineStageFilter,
     forwardToFilter,
     colFilters,
@@ -1125,8 +1137,8 @@ export default function CandidatesClient({
           placeholder="Designation"
           className="w-32"
         />
-        {(hrFilter || siteFilter || statusFilter || designFilter || jobFilter || search || colSort) && (
-          <button onClick={() => { setHrFilter(""); setSiteFilter(""); setStatusFilter(""); setDesignFilter(""); setJobFilter(""); setSearch(""); setColSort(null); }}
+        {(hrFilter || siteFilter || sourceFilter || statusFilter || designFilter || jobFilter || search || dateFieldFilter || activityScopeFilter || pipelineStageFilter || forwardToFilter || colSort) && (
+          <button onClick={() => { setHrFilter(""); setSiteFilter(""); setSourceFilter(""); setStatusFilter(""); setDesignFilter(""); setJobFilter(""); setSearch(""); setDateFieldFilter(""); setActivityScopeFilter(""); setPipelineStageFilter(""); setForwardToFilter(""); setColSort(null); }}
             className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 px-2.5 py-1.5 rounded-lg bg-white">✕ Clear</button>
         )}
         {Object.keys(colFilters).length > 0 && (
