@@ -114,9 +114,13 @@ Current migration files:
 supabase/migrations/20260627074633_drizzle_feature_tables.sql
 supabase/migrations/20260627084959_drop_stale_hrms_tables.sql
 supabase/migrations/20260627115037_restore_app_runtime_tables.sql
+supabase/migrations/20260713064114_site4people_job_boosts.sql
+supabase/migrations/20260718082254_candidate_stage_activity_dates.sql
 ```
 
 Note: `20260627074633_drizzle_feature_tables.sql` has `drizzle` in the filename because it was originally extracted from a newer schema. That name is historical only. Runtime code does not use Drizzle.
+
+The `20260718082254_candidate_stage_activity_dates.sql` migration adds per-stage candidate activity dates, refreshes `v_pipeline_funnel`, and installs a trigger that stamps stage dates when recruiter workflow fields change. It was applied to the linked Supabase project on 2026-07-18. The linked project also has older remote-only migration history entries from April/May 2026 that are not present as local files, so plain `supabase db push` can report migration-history drift until those historical entries are reconciled.
 
 Legacy file:
 
@@ -206,6 +210,50 @@ No HRMS, payroll, attendance, leave, workflow, or other stale tables are require
 | HOD Portal | `/hod-portal` | Hiring requests and HOD review |
 | Public Form | `/f/[id]` | Candidate-facing form without login |
 | Public Job Page | `/public/jobs/[id]` | Crawlable job detail page for Google Jobs |
+
+## Dashboard Activity Reporting
+
+Dashboard date filters now report both fresh intake and actual work completed during the selected business date range.
+
+Business date ranges use the Asia/Kolkata timezone:
+
+- `Today` uses the current local India business date.
+- `This Week` uses Monday through Sunday.
+- `This Month` uses the local calendar month.
+
+The dashboard separates activity into:
+
+- `New CVs`: candidates whose `application_date` is inside the selected range.
+- `Worked On`: candidates whose `application_date` is outside the selected range but at least one stage activity date is inside the selected range.
+
+Pipeline stage totals use each stage's own date field instead of only checking whether the candidate arrived during the range. For example, `Tel Int Done` counts `tel_int_date` in the selected range, and `Offered` counts `offered_date` in the selected range.
+
+The relevant stage date fields include:
+
+```text
+application_date
+tel_int_date
+google_form_sent_date
+google_form_received_date
+processed_by_hr_date
+shortlist_by_hr_date
+shortlisted_for_pi_date
+pi1_date
+pi2_date
+pi3_date
+shortlisted_by_mgmt_date
+gf_issue_date
+gf_received_date
+offered_date
+offered_not_joined_date
+final_status_date
+doj_actual
+doj
+```
+
+When a recruiter changes a workflow field such as Google Form Sent, HR Shortlist, Management Shortlist, Offered, Offered But Did Not Join, or Joined, the Supabase trigger stamps the matching date if it is empty. Existing rows were backfilled during the migration where possible, but old exact stage dates can only be exact when the old database already stored them. Going forward, the trigger records real dates as the work happens.
+
+Candidate drilldowns from the dashboard preserve the activity filters with URL parameters such as `activity_scope`, `date_field`, `pipeline_stage`, and `source_id`, so clicking a dashboard count should open the matching candidate set.
 
 ## User Roles
 
