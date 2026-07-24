@@ -3,8 +3,10 @@ import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { findDuplicateCandidatesByMobile } from "@/lib/candidate-duplicates";
 import { monthFromApplicationDate } from "@/lib/utils";
 import dashboardActivity from "@/lib/dashboard/activity";
+import candidateTags from "@/lib/candidates/tags";
 
 const { inRange, rowHasAnyStageInRange, rowStageInRange, STAGE_DATE_FIELDS } = dashboardActivity;
+const { normalizeTagIds, buildCandidateTagRows } = candidateTags;
 const ACTIVITY_DATE_FIELDS = new Set([
   "application_date",
   ...Object.values(STAGE_DATE_FIELDS as Record<string, string[]>).flat(),
@@ -165,6 +167,7 @@ export async function GET(req: NextRequest) {
   const designId = p.get("designation_id");
   const jobId = p.get("job_id");
   const sourceId = p.get("source_id");
+  const tagId = p.get("tag_id");
   const dateFrom = p.get("date_from");
   const dateTo = p.get("date_to");
   const dateField = p.get("date_field");
@@ -204,6 +207,16 @@ export async function GET(req: NextRequest) {
   if (designId) query = query.eq("designation_id", designId);
   if (jobId) query = query.eq("job_id", jobId);
   if (sourceId) query = query.eq("source_id", sourceId);
+  if (tagId) {
+    const { data: tagRows, error: tagError } = await supabase
+      .from("candidate_tags")
+      .select("candidate_id")
+      .eq("tag_id", tagId);
+    if (tagError) return NextResponse.json({ error: tagError.message }, { status: 500 });
+    const ids = Array.from(new Set((tagRows ?? []).map((row) => row.candidate_id).filter(Boolean)));
+    if (ids.length === 0) return NextResponse.json({ data: [], count: 0 });
+    query = query.in("id", ids);
+  }
   if (!usesActivityDateFilter) {
     if (dateFrom) query = query.gte("application_date", dateFrom);
     if (dateTo) query = query.lte("application_date", dateTo);
@@ -344,6 +357,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json() as Record<string, unknown>;
+  const tagIds = normalizeTagIds(body.tag_ids);
 
   const mobile = typeof body.mobile === "string" ? body.mobile.trim() : "";
   if (mobile) {
@@ -368,5 +382,19 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data });
+
+  if (tagIds.length > 0) {
+    const { error: tagError } = await supabase
+      .from("candidate_tags")
+      .insert(buildCandidateTagRows(data.id, tagIds, user.id));
+    if (tagError) return NextResponse.json({ error: tagError.message }, { status: 500 });
+  }
+
+  const { data: rowWithTags } = await supabase
+    .from("v_pipeline_funnel")
+    .select("*")
+    .eq("id", data.id)
+    .maybeSingle();
+
+  return NextResponse.json({ data: rowWithTags ?? data });
 }

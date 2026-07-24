@@ -15,7 +15,7 @@ interface UserRow {
   department?: string; is_active: boolean;
   is_external_recruiter?: boolean; external_token?: string; created_at: string;
 }
-interface Master { id: string; type: string; name: string; sort_order: number; is_active: boolean; }
+interface Master { id: string; type: string; name: string; color?: string | null; sort_order: number; is_active: boolean; }
 interface EmailTemplate { id: string; name: string; subject: string; body: string; type: string; is_active: boolean; }
 interface ManualWorkflow {
   id: string;
@@ -56,7 +56,8 @@ const SECTIONS: SectionDef[] = [
   { key: "billing",         label: "Billing & Plan",    icon: CreditCard, group: "Advanced",   adminOnly: true },
 ];
 
-const DROPDOWN_TYPES = ["designation", "source", "site", "status"] as const;
+const DROPDOWN_TYPES = ["designation", "source", "site", "status", "tag"] as const;
+const TAG_COLOR_PRESETS = ["#ff2d87", "#2563eb", "#0891b2", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#475569"];
 const PIPELINE_STATUSES = [
   "Sourced","Applied","Recruiter Screening Done","HR Manager Screening Done",
   "Dept Mgr Screening Done","Mgmt Approved for PI Call","Called for PI",
@@ -83,7 +84,8 @@ export default function SettingsPage() {
   const [masters, setMasters] = useState<Master[]>([]);
   const [mastersLoading, setMastersLoading] = useState(false);
   const [newMasterName, setNewMasterName] = useState("");
-  const [editingMaster, setEditingMaster] = useState<{ id: string; name: string } | null>(null);
+  const [newMasterColor, setNewMasterColor] = useState(TAG_COLOR_PRESETS[0]);
+  const [editingMaster, setEditingMaster] = useState<{ id: string; name: string; color: string } | null>(null);
 
   // Email templates
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
@@ -238,11 +240,17 @@ export default function SettingsPage() {
 
   async function addMaster() {
     if (!newMasterName.trim()) return;
+    const body: Partial<Master> & { type: string; name: string; sort_order: number } = {
+      type: dropdownType,
+      name: newMasterName.trim(),
+      sort_order: masters.length + 1,
+    };
+    if (dropdownType === "tag") body.color = newMasterColor;
     const res = await fetch("/api/masters", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: dropdownType, name: newMasterName.trim(), sort_order: masters.length + 1 }),
+      body: JSON.stringify(body),
     });
-    if (res.ok) { setNewMasterName(""); fetchMasters(); }
+    if (res.ok) { setNewMasterName(""); setNewMasterColor(TAG_COLOR_PRESETS[0]); fetchMasters(); }
   }
 
   async function updateMaster(id: string, updates: Partial<Master>) {
@@ -632,7 +640,7 @@ export default function SettingsPage() {
           {/* ══════════════ DROPDOWN MASTERS ══════════════ */}
           {section === "masters" && (
             <div className="space-y-6">
-              <SectionHeader title="Dropdown Masters" desc="Manage Sites, Designations, Sources and Status values" />
+              <SectionHeader title="Dropdown Masters" desc="Manage Sites, Designations, Sources, Status values and Tags" />
               <div className="flex gap-2 flex-wrap">
                 {DROPDOWN_TYPES.map(t => (
                   <button key={t} onClick={() => setDropdownType(t)}
@@ -649,13 +657,47 @@ export default function SettingsPage() {
                         <>
                           <input value={editingMaster.name} onChange={e => setEditingMaster({...editingMaster, name: e.target.value})}
                             className="flex-1 border border-brand-400 rounded px-2 py-1 text-sm outline-none" />
-                          <button onClick={() => updateMaster(m.id, { name: editingMaster.name })} className="text-green-600"><Check size={14}/></button>
+                          {dropdownType === "tag" && (
+                            <div className="flex items-center gap-1.5">
+                              {TAG_COLOR_PRESETS.map(color => (
+                                <button
+                                  key={color}
+                                  type="button"
+                                  onClick={() => setEditingMaster({ ...editingMaster, color })}
+                                  className={`h-5 w-5 rounded-full border ${editingMaster.color === color ? "border-gray-900 ring-2 ring-gray-200" : "border-white"}`}
+                                  style={{ backgroundColor: color }}
+                                  title={color}
+                                />
+                              ))}
+                              <input
+                                type="color"
+                                value={editingMaster.color}
+                                onChange={e => setEditingMaster({ ...editingMaster, color: e.target.value })}
+                                className="h-6 w-7 cursor-pointer rounded border border-gray-200 bg-white p-0"
+                                title="Custom color"
+                              />
+                            </div>
+                          )}
+                          <button
+                            onClick={() => updateMaster(m.id, {
+                              name: editingMaster.name,
+                              ...(dropdownType === "tag" ? { color: editingMaster.color } : {}),
+                            })}
+                            className="text-green-600"
+                          ><Check size={14}/></button>
                           <button onClick={() => setEditingMaster(null)} className="text-gray-400"><X size={14}/></button>
                         </>
                       ) : (
                         <>
+                          {dropdownType === "tag" && (
+                            <span
+                              className="h-3.5 w-3.5 flex-shrink-0 rounded-full border border-gray-200"
+                              style={{ backgroundColor: m.color ?? "#f3f4f6" }}
+                              title={m.color ?? "No color saved"}
+                            />
+                          )}
                           <span className={`text-sm flex-1 ${!m.is_active ? "line-through text-gray-400" : "text-gray-800"}`}>{m.name}</span>
-                          <button onClick={() => setEditingMaster({ id: m.id, name: m.name })} className="text-gray-400 hover:text-gray-600"><Edit2 size={13}/></button>
+                          <button onClick={() => setEditingMaster({ id: m.id, name: m.name, color: m.color ?? TAG_COLOR_PRESETS[0] })} className="text-gray-400 hover:text-gray-600"><Edit2 size={13}/></button>
                           <button onClick={() => updateMaster(m.id, { is_active: !m.is_active })}
                             className={`text-xs px-2 py-0.5 rounded ${m.is_active ? "text-red-400 hover:text-red-600" : "text-green-500 hover:text-green-700"}`}>
                             {m.is_active ? "Hide" : "Show"}
@@ -671,6 +713,27 @@ export default function SettingsPage() {
                   onKeyDown={e => e.key === "Enter" && addMaster()}
                   placeholder={`Add new ${dropdownType}…`}
                   className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500" />
+                {dropdownType === "tag" && (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+                    {TAG_COLOR_PRESETS.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setNewMasterColor(color)}
+                        className={`h-5 w-5 rounded-full border ${newMasterColor === color ? "border-gray-900 ring-2 ring-gray-200" : "border-white"}`}
+                        style={{ backgroundColor: color }}
+                        title={color}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      value={newMasterColor}
+                      onChange={e => setNewMasterColor(e.target.value)}
+                      className="h-6 w-7 cursor-pointer rounded border border-gray-200 bg-white p-0"
+                      title="Custom color"
+                    />
+                  </div>
+                )}
                 <button onClick={addMaster} className={btnPrimary}><Plus size={14} /> Add</button>
               </div>
             </div>

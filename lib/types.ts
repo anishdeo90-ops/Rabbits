@@ -121,6 +121,9 @@ export interface Candidate {
   job_id?: string;
   // Custom columns (admin-extensible)
   custom_data: Record<string, unknown>;
+  tag_ids?: string[];
+  tag_names?: string[];
+  tag_colors?: string[];
   // Audit
   created_at: string;
   updated_at: string;
@@ -424,6 +427,7 @@ export const MASTER_TYPES = [
   { key: "source",      label: "Sources" },
   { key: "department",  label: "Departments" },
   { key: "status",      label: "Statuses" },
+  { key: "tag",         label: "Tags" },
   { key: "location",    label: "Locations" },
 ] as const;
 

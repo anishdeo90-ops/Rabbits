@@ -116,11 +116,14 @@ supabase/migrations/20260627084959_drop_stale_hrms_tables.sql
 supabase/migrations/20260627115037_restore_app_runtime_tables.sql
 supabase/migrations/20260713064114_site4people_job_boosts.sql
 supabase/migrations/20260718082254_candidate_stage_activity_dates.sql
+supabase/migrations/20260724075635_candidate_tags.sql
 ```
 
 Note: `20260627074633_drizzle_feature_tables.sql` has `drizzle` in the filename because it was originally extracted from a newer schema. That name is historical only. Runtime code does not use Drizzle.
 
 The `20260718082254_candidate_stage_activity_dates.sql` migration adds per-stage candidate activity dates, refreshes `v_pipeline_funnel`, and installs a trigger that stamps stage dates when recruiter workflow fields change. It was applied to the linked Supabase project on 2026-07-18. The linked project also has older remote-only migration history entries from April/May 2026 that are not present as local files, so plain `supabase db push` can report migration-history drift until those historical entries are reconciled.
+
+The `20260724075635_candidate_tags.sql` migration adds candidate tagging. Tag definitions live in `masters` with `type = 'tag'`; candidate assignments live in `candidate_tags`; `v_pipeline_funnel` exposes `tag_ids`, `tag_names`, and `tag_colors` arrays for candidate list, ATS, and Kanban views.
 
 Legacy file:
 
@@ -153,6 +156,7 @@ candidate_communications
 candidate_files
 candidate_followups
 candidate_forwards
+candidate_tags
 candidate_job_scores
 candidate_offers
 candidates
@@ -297,6 +301,42 @@ Admins, HR managers, and HOD users can create, edit, activate, and deactivate wo
 ```
 
 Recruiters can view active workflows and start allowed workflows for candidates they can access.
+
+## Candidate Tags
+
+Candidate tags are used to segment candidates across Sheet, ATS, and Kanban views.
+
+Admin setup:
+
+1. Open `/settings#masters`.
+2. Select the `tag` Dropdown Masters tab.
+3. Add active tag names such as `Priority`, `Walk-in`, `Night Shift`, or any segment needed by the team.
+4. Pick a tag color from the preset swatches or the custom color picker. The saved color is used everywhere the tag appears.
+
+Candidate assignment:
+
+- Open `/candidates`.
+- Click a candidate name to open the candidate sidebar.
+- Use the small plus button in the sidebar header beside the existing tag chips to add tags without taking space from `Current Status`.
+- Save the sidebar to update the candidate's tag assignments.
+- In Sheet view, use the plus button in the thin `TAGS` column to add a tag directly from the grid.
+
+Candidate display and filtering:
+
+- `/candidates` has a `Tag` filter in the main filter bar.
+- The filter sends `tag_id` to `/api/candidates`, so Sheet, ATS, and Kanban all show the same filtered candidate set.
+- Sheet view has a thin `TAGS` column near the end of the grid, before `AI Score`.
+- ATS cards and Kanban cards show colored tag chips directly on each candidate card.
+- The candidate sidebar header also shows the assigned tag chips.
+- Existing linked Supabase tag rows that had no saved color were backfilled to the default pink `#ff2d87`; future tag creation defaults to the same color if no color is supplied.
+
+Supabase storage:
+
+```text
+masters.type = 'tag' stores active tag definitions, including the saved color.
+candidate_tags stores candidate/tag assignments.
+v_pipeline_funnel exposes tag_ids, tag_names, and tag_colors arrays.
+```
 
 ## Site4People And Google Jobs
 
@@ -530,7 +570,8 @@ Public job pages open linked forms with `j=<job_id>`. Those submissions are curr
 7. Upload a candidate CV if Google Drive is configured.
 8. Open `/settings#workflows` and verify workflows load.
 9. Select candidates from `/candidates` and verify the Start Workflow modal opens.
-10. Run `npm.cmd run build` before deploying code changes.
+10. Open `/settings#masters`, add or confirm an active `tag`, assign it from a candidate sidebar, and verify the `/candidates` Tag filter affects Sheet, ATS, and Kanban.
+11. Run `npm.cmd run build` before deploying code changes.
 
 ## Removed Legacy Stack
 

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { enqueueStageChangeTriggers } from "@/lib/automation/triggers";
 import { monthFromApplicationDate } from "@/lib/utils";
+import candidateTags from "@/lib/candidates/tags";
+
+const { normalizeTagIds, buildCandidateTagRows } = candidateTags;
 
 const WRITABLE_CANDIDATE_FIELDS = new Set([
   "hr_id",
@@ -136,9 +139,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json() as Record<string, unknown>;
   const payload = pickWritableCandidateFields(body);
   const payloadKeys = Object.keys(payload);
+  const hasTagPatch = Object.prototype.hasOwnProperty.call(body, "tag_ids");
+  const tagIds = normalizeTagIds(body.tag_ids);
   const hasAssignmentChange = Object.prototype.hasOwnProperty.call(payload, "hr_id");
   const nextHrId = typeof payload.hr_id === "string" ? payload.hr_id : null;
   const assignmentChanged = hasAssignmentChange && nextHrId !== previousCandidate.hr_id;
+
+  if (payloadKeys.length === 0 && !hasTagPatch) {
+    return NextResponse.json({ error: "No supported fields to update" }, { status: 400 });
+  }
 
   if (hasAssignmentChange) {
     if (!["admin", "hr_manager", "hod"].includes(profile.role)) {
@@ -160,7 +169,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  if (profile.role === "hod" && (payloadKeys.length !== 1 || !hasAssignmentChange)) {
+  if (profile.role === "hod" && (hasTagPatch || payloadKeys.length !== 1 || !hasAssignmentChange)) {
     return NextResponse.json({ error: "HODs can only reassign candidates" }, { status: 403 });
   }
 
@@ -170,14 +179,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "You can only edit your own candidates" }, { status: 403 });
   }
 
-  const { data, error } = await supabase
-    .from("candidates")
-    .update({ ...payload, updated_by: user.id })
-    .eq("id", id)
-    .select()
-    .single();
+  let data = previousCandidate;
+  if (payloadKeys.length > 0) {
+    const { data: updatedCandidate, error } = await supabase
+      .from("candidates")
+      .update({ ...payload, updated_by: user.id })
+      .eq("id", id)
+      .select()
+      .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    data = updatedCandidate;
+  }
+
+  if (hasTagPatch) {
+    const { error: deleteTagError } = await supabase
+      .from("candidate_tags")
+      .delete()
+      .eq("candidate_id", id);
+    if (deleteTagError) return NextResponse.json({ error: deleteTagError.message }, { status: 500 });
+
+    const tagRows = buildCandidateTagRows(id, tagIds, user.id);
+    if (tagRows.length > 0) {
+      const { error: insertTagError } = await supabase
+        .from("candidate_tags")
+        .insert(tagRows);
+      if (insertTagError) return NextResponse.json({ error: insertTagError.message }, { status: 500 });
+    }
+  }
+
   if (assignmentChanged) {
     const { error: logError } = await supabase
       .from("activity_log")
@@ -194,7 +224,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof payload.final_status === "string" && payload.final_status !== previousCandidate?.final_status) {
     await enqueueStageChangeTriggers(id, payload.final_status, previousCandidate);
   }
-  return NextResponse.json({ data });
+
+  const { data: rowWithTags } = await supabase
+    .from("v_pipeline_funnel")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  return NextResponse.json({ data: rowWithTags ?? data });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

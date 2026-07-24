@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+const DEFAULT_TAG_COLOR = "#ff2d87";
+
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -34,6 +36,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
+  if (body?.type === "tag" && !body.color) body.color = DEFAULT_TAG_COLOR;
   const { data, error } = await supabase
     .from("masters")
     .insert({ ...body, created_by: user.id })

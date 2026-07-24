@@ -153,6 +153,166 @@ function formatBytes(b?: number) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
+type TagChip = { id: string; name: string; color?: string | null };
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);
+  if (typeof value === "string" && value.trim()) {
+    return value.split(",").map(v => v.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function candidateTagChips(cand: Partial<Candidate>, tags: Master[]): TagChip[] {
+  const ids = asStringArray(cand.tag_ids);
+  const names = asStringArray(cand.tag_names);
+  const colors = asStringArray(cand.tag_colors);
+  const tagById = new Map(tags.map(tag => [tag.id, tag]));
+  const tagByName = new Map(tags.map(tag => [tag.name.trim().toLowerCase(), tag]));
+
+  if (ids.length > 0) {
+    return ids
+      .map((id, idx) => {
+        const master = tagById.get(id);
+        const name = master?.name ?? names[idx] ?? id;
+        const namedMaster = tagByName.get(name.trim().toLowerCase());
+        return { id, name, color: master?.color ?? namedMaster?.color ?? colors[idx] };
+      })
+      .filter(tag => tag.name);
+  }
+
+  return names.map((name, idx) => {
+    const master = tagByName.get(name.trim().toLowerCase());
+    return { id: master?.id ?? name, name: master?.name ?? name, color: master?.color ?? colors[idx] };
+  });
+}
+
+function TagChips({ chips, max = 3 }: { chips: TagChip[]; max?: number }) {
+  if (chips.length === 0) return null;
+  const visible = chips.slice(0, max);
+  const extra = chips.length - visible.length;
+
+  return (
+    <div className="flex flex-wrap gap-1 min-w-0">
+      {visible.map(tag => (
+        <span
+          key={tag.id}
+          className="inline-flex max-w-full items-center truncate rounded-full border px-2 py-0.5 text-xs font-medium"
+          style={tag.color
+            ? { borderColor: tag.color, color: "#fff", backgroundColor: tag.color }
+            : undefined}
+          title={tag.name}
+        >
+          <span className="truncate">{tag.name}</span>
+        </span>
+      ))}
+      {extra > 0 && (
+        <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-500">
+          +{extra}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TagSelector({
+  selectedIds,
+  tags,
+  disabled,
+  onChange,
+  compact = false,
+}: {
+  selectedIds: string[];
+  tags: Master[];
+  disabled: boolean;
+  onChange: (nextIds: string[]) => void;
+  compact?: boolean;
+}) {
+  const selected = tags.filter(tag => selectedIds.includes(tag.id));
+  const available = tags.filter(tag => !selectedIds.includes(tag.id));
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  function removeTag(id: string) {
+    onChange(selectedIds.filter(tagId => tagId !== id));
+  }
+
+  function addTag(id: string) {
+    if (!id || selectedIds.includes(id)) return;
+    onChange([...selectedIds, id]);
+    setOpen(false);
+  }
+
+  if (compact && (disabled || available.length === 0)) return null;
+  const containerClass = compact
+    ? "relative inline-flex"
+    : `relative min-h-[34px] w-full rounded-lg border px-2 py-1 flex flex-wrap items-center gap-1 ${
+        disabled ? "bg-gray-50 border-gray-100" : "border-gray-200 focus-within:ring-2 focus-within:ring-brand-500"
+      }`;
+
+  return (
+    <div
+      ref={menuRef}
+      className={containerClass}
+    >
+      {!compact && selected.map(tag => (
+          <span
+            key={tag.id}
+            className="inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium"
+            style={tag.color
+              ? { borderColor: tag.color, color: "#fff", backgroundColor: tag.color }
+              : undefined}
+          >
+            <span className="truncate">{tag.name}</span>
+            {!disabled && (
+              <button type="button" onClick={() => removeTag(tag.id)} className="text-gray-400 hover:text-gray-700">
+                <X size={10} />
+              </button>
+            )}
+          </span>
+        ))}
+      {!disabled && available.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen(v => !v)}
+          className={`${compact ? "h-6 w-6 rounded-full" : "h-6 px-2 rounded-md"} inline-flex items-center justify-center border border-gray-200 bg-white text-gray-400 hover:border-brand-300 hover:text-brand-600 hover:bg-brand-50 transition-colors`}
+          title="Add tag"
+        >
+          <Plus size={compact ? 13 : 12} />
+          {!compact && <span className="ml-1 text-xs">Add tag</span>}
+        </button>
+      )}
+      {!compact && selected.length === 0 && disabled && <span className="text-sm text-gray-300">-</span>}
+      {open && available.length > 0 && (
+        <div className={`${compact ? "right-0 top-7" : "left-0 top-full mt-1"} absolute z-[70] w-44 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg`}>
+          {available.map(tag => (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() => addTag(tag.id)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-brand-50 hover:text-brand-700"
+            >
+              <span
+                className="h-2 w-2 rounded-full border border-gray-200"
+                style={tag.color ? { backgroundColor: tag.color, borderColor: tag.color } : undefined}
+              />
+              <span className="truncate">{tag.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
   candidateId: string;
@@ -160,12 +320,13 @@ interface Props {
   sites: Master[];
   designations: Master[];
   sources: Master[];
+  tags?: Master[];
   recruiters: Profile[];
   onClose: () => void;
   onUpdated: () => void;
 }
 
-export default function DetailPanel({ candidateId, profile, sites, designations, sources, recruiters, onClose, onUpdated }: Props) {
+export default function DetailPanel({ candidateId, profile, sites, designations, sources, tags = [], recruiters, onClose, onUpdated }: Props) {
   const [tab, setTab]           = useState<Tab>("overview");
   const [cand, setCand]         = useState<Candidate | null>(null);
   const [form, setForm]         = useState<Partial<Candidate>>({});
@@ -359,6 +520,11 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     setDirty(true);
   }
 
+  function handleTagsChange(nextIds: string[]) {
+    setForm(prev => ({ ...prev, tag_ids: nextIds }));
+    setDirty(true);
+  }
+
   async function save() {
     if (!cand || !dirty) return;
     setSaving(true);
@@ -387,6 +553,8 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
         payload.site_id = sites.find(s => s.name === form.site_name)?.id ?? null;
       if (form.source_name !== cand.source_name)
         payload.source_id = sources.find(s => s.name === form.source_name)?.id ?? null;
+      if ("tag_ids" in form)
+        payload.tag_ids = asStringArray(form.tag_ids);
 
       const res = await fetch(`/api/candidates/${cand.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -784,7 +952,6 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
     "Aadhaar Card", "PAN Card", "Last 3 Payslips", "Experience Letter",
     "Educational Certificates", "Bank Details", "Passport Photo (2 copies)", "Background Check Consent",
   ];
-
   return (
     <PanelContext.Provider value={{ form, canEdit, onChange: handleChange }}>
     <>
@@ -809,6 +976,16 @@ export default function DetailPanel({ candidateId, profile, sites, designations,
                     cand.final_status.toLowerCase().includes("offer") ? "bg-brand-100 text-brand-700" :
                     cand.final_status.toLowerCase().includes("pi") ? "bg-indigo-100 text-indigo-700" :
                     "bg-gray-100 text-gray-600"}`}>{cand.final_status}</span>
+                )}
+                <TagChips chips={candidateTagChips({ ...cand, tag_ids: form.tag_ids ?? cand.tag_ids }, tags)} max={3} />
+                {canEdit && (
+                  <TagSelector
+                    selectedIds={asStringArray(form.tag_ids ?? cand.tag_ids)}
+                    tags={tags}
+                    disabled={!canEdit}
+                    onChange={handleTagsChange}
+                    compact
+                  />
                 )}
               </div>
               <p className="text-xs text-gray-400 mt-0.5 truncate">

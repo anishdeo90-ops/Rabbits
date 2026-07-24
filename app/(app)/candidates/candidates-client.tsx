@@ -6,7 +6,7 @@ import type { Candidate, Master, Profile } from "@/lib/types";
 import DetailPanel from "@/components/candidate-detail-panel";
 import AddCandidateModal from "@/components/add-candidate-modal";
 import toast from "react-hot-toast";
-import { X, Upload, Link as LinkIcon, ExternalLink, Trash2 } from "lucide-react";
+import { X, Upload, Link as LinkIcon, ExternalLink, Trash2, Plus } from "lucide-react";
 import { monthFromApplicationDate } from "@/lib/utils";
 
 // ── Searchable combobox (used for filter dropdowns) ─────────────────────────
@@ -70,6 +70,7 @@ interface Props {
   designations: Master[];
   sources: Master[];
   statuses: Master[];
+  tags: Master[];
   recruiters: Profile[];
   interviewers: Master[];
   initialStatus?: string;
@@ -79,6 +80,7 @@ interface Props {
   initialOwner?: OwnerFilter;
   initialSiteId?: string;
   initialSourceId?: string;
+  initialTagId?: string;
   initialDateFrom?: string;
   initialDateTo?: string;
   initialDateField?: string;
@@ -156,6 +158,7 @@ const SHEET_COLS: {
   { key: "doj_actual",                 label: "DOJ",                                           width: 110, type: "date" },
   { key: "hard_copy",                  label: "HARD COPY Y/N",                                 width: 110, type: "dropdown", dropdownKey: "yesNo" },
   { key: "referred_by",                label: "REFERRED BY",                                   width: 145 },
+  { key: "tag_names",                  label: "TAGS",                                          width: 92, readOnly: true },
   { key: "ai_score",                   label: "AI Score",                                      width: 75,  readOnly: true },
 ];
 
@@ -292,10 +295,155 @@ function optionListWithValues(
   return [...opts, ...extras];
 }
 
+type TagChip = { id: string; name: string; color?: string | null };
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);
+  if (typeof value === "string" && value.trim()) {
+    return value.split(",").map(v => v.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function candidateTagChips(cand: Candidate, tags: Master[]): TagChip[] {
+  const ids = asStringArray(cand.tag_ids);
+  const names = asStringArray(cand.tag_names);
+  const colors = asStringArray(cand.tag_colors);
+  const tagById = new Map(tags.map(tag => [tag.id, tag]));
+  const tagByName = new Map(tags.map(tag => [tag.name.trim().toLowerCase(), tag]));
+
+  if (ids.length > 0) {
+    return ids
+      .map((id, idx) => {
+        const master = tagById.get(id);
+        const name = master?.name ?? names[idx] ?? id;
+        const namedMaster = tagByName.get(name.trim().toLowerCase());
+        return { id, name, color: master?.color ?? namedMaster?.color ?? colors[idx] };
+      })
+      .filter(tag => tag.name);
+  }
+
+  return names.map((name, idx) => {
+    const master = tagByName.get(name.trim().toLowerCase());
+    return { id: master?.id ?? name, name: master?.name ?? name, color: master?.color ?? colors[idx] };
+  });
+}
+
+function TagChips({ chips, max = 3, compact = false }: { chips: TagChip[]; max?: number; compact?: boolean }) {
+  if (chips.length === 0) return null;
+  const visible = chips.slice(0, max);
+  const extra = chips.length - visible.length;
+
+  return (
+    <div className="flex flex-wrap gap-1 min-w-0">
+      {visible.map(tag => (
+        <span
+          key={tag.id}
+          className={`inline-flex items-center max-w-full truncate rounded-full border font-medium ${
+            compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+          }`}
+          style={tag.color
+            ? { borderColor: tag.color, color: "#fff", backgroundColor: tag.color }
+            : undefined}
+          title={tag.name}
+        >
+          <span className="truncate">{tag.name}</span>
+        </span>
+      ))}
+      {extra > 0 && (
+        <span className={`inline-flex items-center rounded-full border border-gray-200 bg-gray-50 text-gray-500 font-medium ${
+          compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+        }`}>
+          +{extra}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function withTagSnapshot(candidate: Candidate, nextIds: string[], tags: Master[]): Candidate {
+  const selected = nextIds
+    .map(id => tags.find(tag => tag.id === id))
+    .filter((tag): tag is Master => Boolean(tag));
+
+  return {
+    ...candidate,
+    tag_ids: nextIds,
+    tag_names: selected.map(tag => tag.name),
+    tag_colors: selected.map(tag => tag.color ?? ""),
+  };
+}
+
+function SheetTagCell({
+  cand,
+  tags,
+  editable,
+  open,
+  onToggle,
+  onAdd,
+}: {
+  cand: Candidate;
+  tags: Master[];
+  editable: boolean;
+  open: boolean;
+  onToggle: () => void;
+  onAdd: (tagId: string) => void;
+}) {
+  const selectedIds = asStringArray(cand.tag_ids);
+  const chips = candidateTagChips(cand, tags);
+  const available = tags.filter(tag => !selectedIds.includes(tag.id));
+
+  return (
+    <div className="relative flex h-full min-h-[28px] items-center gap-1 px-1.5 py-1">
+      <div className="min-w-0 flex-1">
+        <TagChips chips={chips} max={1} compact />
+      </div>
+      {editable && available.length > 0 && (
+        <button
+          type="button"
+          onClick={event => {
+            event.stopPropagation();
+            onToggle();
+          }}
+          className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-600 transition-colors"
+          title="Add tag"
+        >
+          <Plus size={12} />
+        </button>
+      )}
+      {chips.length === 0 && (!editable || available.length === 0) && (
+        <span className="text-xs text-gray-200">-</span>
+      )}
+      {open && available.length > 0 && (
+        <div
+          className="absolute right-1 top-7 z-50 w-44 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          onClick={event => event.stopPropagation()}
+          onMouseDown={event => event.stopPropagation()}
+        >
+          {available.map(tag => (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() => onAdd(tag.id)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-brand-50 hover:text-brand-700"
+            >
+              <span
+                className="h-2 w-2 rounded-full border border-gray-200"
+                style={tag.color ? { backgroundColor: tag.color, borderColor: tag.color } : undefined}
+              />
+              <span className="truncate">{tag.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CandidatesClient({
-  profile, sites, designations, sources, statuses, recruiters, interviewers,
+  profile, sites, designations, sources, statuses, tags, recruiters, interviewers,
   initialStatus = "", initialHrId = "", initialDesignationId = "", initialJobId = "", initialOwner = "all",
-  initialSiteId = "", initialSourceId = "", initialDateFrom = "", initialDateTo = "", initialDateField = "", initialActivityScope = "", initialPipelineStage = "", initialForwardToId = "",
+  initialSiteId = "", initialSourceId = "", initialTagId = "", initialDateFrom = "", initialDateTo = "", initialDateField = "", initialActivityScope = "", initialPipelineStage = "", initialForwardToId = "",
 }: Props) {
   const router = useRouter();
   const [view, setView]             = useState<View>("sheet");
@@ -306,6 +454,7 @@ export default function CandidatesClient({
   const [hrFilter, setHrFilter]         = useState(initialHrId);
   const [siteFilter, setSiteFilter]     = useState(initialSiteId);
   const [sourceFilter, setSourceFilter] = useState(initialSourceId);
+  const [tagFilter, setTagFilter]       = useState(initialTagId);
   const [dateFromFilter, setDateFromFilter]       = useState(initialDateFrom);
   const [dateToFilter, setDateToFilter]           = useState(initialDateTo);
   const [dateFieldFilter, setDateFieldFilter]     = useState(initialDateField);
@@ -348,6 +497,7 @@ export default function CandidatesClient({
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
   const [colSort, setColSort] = useState<{ key: string; dir: SortDir } | null>({ key: "application_date", dir: "asc" });
   const [openColFilter, setOpenColFilter] = useState<string | null>(null);
+  const [openTagMenu, setOpenTagMenu] = useState<string | null>(null);
   const colFilterRef = useRef<HTMLDivElement>(null);
 
   // ── New row state ────────────────────────────────────────────────────────
@@ -378,9 +528,9 @@ export default function CandidatesClient({
   const YN_OPTS   = toOpts(["Yes", "No"]);
   const YNNA_OPTS = toOpts(["Yes", "No", "NA"]);
   const MGMT_OPTS = toOpts(["Call on Trial", "Hold", "Unsuitable", "Suitable"]);
-
   const dropdownOpts: Record<string, { id: string; name: string }[]> = {
     status:             statuses,
+    tag:                tags,
     site:               sites,
     designation:        designations,
     source:             sources,
@@ -403,6 +553,7 @@ export default function CandidatesClient({
     else if (ownerFilter === "mine") p.set("hr_id",   profile.id);
     if (siteFilter)          p.set("site_id",          siteFilter);
     if (sourceFilter)        p.set("source_id",        sourceFilter);
+    if (tagFilter)           p.set("tag_id",           tagFilter);
     if (statusFilter)        p.set("status",           statusFilter);
     if (designFilter)        p.set("designation_id",   designFilter);
     if (jobFilter)           p.set("job_id",           jobFilter);
@@ -428,7 +579,7 @@ export default function CandidatesClient({
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hrFilter, ownerFilter, profile.id, siteFilter, sourceFilter, statusFilter, designFilter, jobFilter, search, dateFromFilter, dateToFilter, dateFieldFilter, activityScopeFilter, pipelineStageFilter, forwardToFilter]);
+  }, [hrFilter, ownerFilter, profile.id, siteFilter, sourceFilter, tagFilter, statusFilter, designFilter, jobFilter, search, dateFromFilter, dateToFilter, dateFieldFilter, activityScopeFilter, pipelineStageFilter, forwardToFilter]);
 
   async function loadMore() {
     if (loadingMore || !hasMore) return;
@@ -443,6 +594,14 @@ export default function CandidatesClient({
   }
 
   useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
+
+  useEffect(() => {
+    function closeTagMenu() {
+      setOpenTagMenu(null);
+    }
+    document.addEventListener("mousedown", closeTagMenu);
+    return () => document.removeEventListener("mousedown", closeTagMenu);
+  }, []);
 
   // Load saved kanban column order / config from localStorage
   useEffect(() => {
@@ -810,9 +969,39 @@ export default function CandidatesClient({
     }
   }
 
+  async function updateCandidateTags(cand: Candidate, nextIds: string[]) {
+    if (!canEdit(cand)) return;
+    setOpenTagMenu(null);
+    setCandidates(prev => prev.map(c => c.id === cand.id ? withTagSnapshot(c, nextIds, tags) : c));
+    setSaving(prev => new Set(prev).add(cand.id));
+
+    try {
+      const res = await fetch(`/api/candidates/${cand.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag_ids: nextIds }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "Tag update failed");
+        fetchCandidates();
+        return;
+      }
+      if (json.data) {
+        setCandidates(prev => prev.map(c => c.id === cand.id ? json.data : c));
+      }
+    } catch {
+      toast.error("Tag update failed");
+      fetchCandidates();
+    } finally {
+      setSaving(prev => { const n = new Set(prev); n.delete(cand.id); return n; });
+    }
+  }
+
   function getCellValue(cand: Candidate, colKey: string, colType?: string): string {
     const raw = (cand as unknown as Record<string, unknown>)[colKey];
     if (raw === null || raw === undefined) return "";
+    if (Array.isArray(raw)) return raw.map(v => String(v).trim()).filter(Boolean).join(", ");
     if (colType === "date") return String(raw).slice(0, 10);
     return String(raw);
   }
@@ -1137,8 +1326,15 @@ export default function CandidatesClient({
           placeholder="Designation"
           className="w-32"
         />
-        {(hrFilter || siteFilter || sourceFilter || statusFilter || designFilter || jobFilter || search || dateFieldFilter || activityScopeFilter || pipelineStageFilter || forwardToFilter || colSort) && (
-          <button onClick={() => { setHrFilter(""); setSiteFilter(""); setSourceFilter(""); setStatusFilter(""); setDesignFilter(""); setJobFilter(""); setSearch(""); setDateFieldFilter(""); setActivityScopeFilter(""); setPipelineStageFilter(""); setForwardToFilter(""); setColSort(null); }}
+        <SearchCombobox
+          options={tags.map(t => ({ id: t.id, name: t.name }))}
+          value={tagFilter}
+          onChange={setTagFilter}
+          placeholder="Tag"
+          className="w-28"
+        />
+        {(hrFilter || siteFilter || sourceFilter || tagFilter || statusFilter || designFilter || jobFilter || search || dateFieldFilter || activityScopeFilter || pipelineStageFilter || forwardToFilter || colSort) && (
+          <button onClick={() => { setHrFilter(""); setSiteFilter(""); setSourceFilter(""); setTagFilter(""); setStatusFilter(""); setDesignFilter(""); setJobFilter(""); setSearch(""); setDateFieldFilter(""); setActivityScopeFilter(""); setPipelineStageFilter(""); setForwardToFilter(""); setColSort(null); }}
             className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 px-2.5 py-1.5 rounded-lg bg-white">✕ Clear</button>
         )}
         {Object.keys(colFilters).length > 0 && (
@@ -1364,12 +1560,23 @@ export default function CandidatesClient({
                               )
                             ) : (
                               <div className={[
-                                "px-2 py-1.5 truncate text-xs leading-snug",
+                                col.key === "tag_names" ? "overflow-visible px-0 py-0 text-xs leading-snug" : "px-2 py-1.5 truncate text-xs leading-snug",
                                 isNameCol   ? "text-brand-600 font-semibold cursor-pointer hover:underline" : "",
                                 isReadOnly  ? "text-gray-400" : "",
                                 !editable && !isReadOnly ? "text-gray-400" : "text-gray-800",
                               ].join(" ")}>
-                                {col.key === "final_status" && rawVal
+                                {col.key === "tag_names"
+                                  ? (
+                                    <SheetTagCell
+                                      cand={cand}
+                                      tags={tags}
+                                      editable={editable}
+                                      open={openTagMenu === cand.id}
+                                      onToggle={() => setOpenTagMenu(openTagMenu === cand.id ? null : cand.id)}
+                                      onAdd={tagId => updateCandidateTags(cand, [...asStringArray(cand.tag_ids), tagId])}
+                                    />
+                                  )
+                                  : col.key === "final_status" && rawVal
                                   ? <span className={`px-1.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${STATUS_COLORS[rawVal] ?? "bg-gray-100 text-gray-600"}`}>{rawVal}</span>
                                   : (col.key === "naukri_link" || col.key === "naukri_profile_url") && rawVal
                                     ? <a href={rawVal} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-blue-500 hover:underline">🔗 Link</a>
@@ -1582,6 +1789,9 @@ export default function CandidatesClient({
                       className={`text-xs font-semibold rounded-full px-1.5 py-0.5 border-0 outline-none cursor-pointer appearance-none max-w-full ${STATUS_COLORS[cand.final_status ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
                       {optionListWithCurrent(statuses, cand.final_status ?? "").map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                     </select>
+                    <div className="mt-2">
+                      <TagChips chips={candidateTagChips(cand, tags)} max={3} />
+                    </div>
                     <div className="text-xs text-gray-400 space-y-0.5 mt-2">
                       {cand.site_name && <div>📍 {cand.site_name}</div>}
                       {cand.source_name && <div>🔗 {cand.source_name}</div>}
@@ -1655,6 +1865,9 @@ export default function CandidatesClient({
                 <p className="text-xs font-semibold text-gray-900 leading-tight pr-7">{cand.name}</p>
                 <p className="text-xs text-gray-400 mt-0.5 truncate">{cand.designation_name}</p>
                 {cand.site_name && <p className="text-xs text-gray-400">{cand.site_name}</p>}
+                <div className="mt-1">
+                  <TagChips chips={candidateTagChips(cand, tags)} max={2} compact />
+                </div>
                 <select
                   value={cand.final_status ?? ""}
                   onClick={e => e.stopPropagation()}
@@ -1814,7 +2027,7 @@ export default function CandidatesClient({
       {panelId && (
         <DetailPanel
           candidateId={panelId} profile={profile}
-          sites={sites} designations={designations} sources={sources} recruiters={recruiters}
+          sites={sites} designations={designations} sources={sources} tags={tags} recruiters={recruiters}
           onClose={() => setPanelId(null)} onUpdated={fetchCandidates}
         />
       )}
